@@ -8,6 +8,9 @@ record the new commit here.
 | `chips/` | https://github.com/floooh/chips | `7ef8776f637a6424ac615da64de6b968b06de791` | 2026-11-08 | zlib (`chips/LICENSE`) |
 | `sokol/` | https://github.com/floooh/sokol | `93aa187b5d387cc24b7290b3ca3f13f61e139e7c` | 2026-11-10 | zlib (`sokol/LICENSE`) |
 | `open-roms/` | https://github.com/MEGA65/open-roms | `ad178dbe4d48cd6a317737a8e0e7e662f7e33d32` | 2026-05-16 | LGPL-3.0-or-later (`open-roms/LICENSE`, `COPYING`, `COPYING.LESSER`) |
+| `imgui/` | https://github.com/ocornut/imgui (tag v1.93.0) | `c1aaac65e896a45f81f47a4d68f9959e0f86c859` | | MIT (`imgui/LICENSE.txt`) |
+| `nfd/` | https://github.com/btzy/nativefiledialog-extended (tag v1.4.1) | `65b2f070a0fcfee0d453a64e770a217ab0b6ff4f` | | zlib (`nfd/LICENSE`) |
+| `tomlc17/` | https://github.com/cktan/tomlc17 (tag R261109) | `aa4ca1bc5fe6382ac631a8d1428077a9a084a64d` | 2026-11-09 | MIT (`tomlc17/LICENSE`) |
 
 ## Patched copies
 
@@ -21,7 +24,12 @@ record the new commit here.
 
 - **chips:** `chips/{chips_common,m6502,m6526,m6569,m6581,kbd,mem,clk,m6522}.h`,
   `systems/{c64,c1530,c1541}.h`.
-- **sokol:** `sokol_{app,gfx,audio,glue,log,time}.h`, `util/sokol_gl.h`.
+- **sokol:** `sokol_{app,gfx,audio,glue,log,time}.h`, `util/sokol_gl.h`, `util/sokol_imgui.h`.
+- **imgui:** core files only (`imgui*.cpp/.h`, `imconfig.h`, `imstb_*.h`), no backends
+  (sokol_imgui is the backend).
+- **nfd:** `CMakeLists.txt`, `src/`, `3ps/` (built with `NFD_PORTAL=ON`: on Linux/BSD
+  it talks to xdg-desktop-portal over D-Bus, so no GTK dependency).
+- **tomlc17:** `src/tomlc17.{c,h}` (successor of the now-obsolete tomlc99).
 - **open-roms:** prebuilt `bin/` images from the generic C64 set. These are free
   replacement ROMs, not Commodore's code. They're embedded into the executable at build
   time as the default system ROMs.
