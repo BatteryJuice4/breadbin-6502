@@ -11,6 +11,7 @@ record the new commit here.
 | `imgui/` | https://github.com/ocornut/imgui (tag v1.93.0) | `c1aaac65e896a45f81f47a4d68f9959e0f86c859` | | MIT (`imgui/LICENSE.txt`) |
 | `nfd/` | https://github.com/btzy/nativefiledialog-extended (tag v1.4.1) | `65b2f070a0fcfee0d453a64e770a217ab0b6ff4f` | | zlib (`nfd/LICENSE`) |
 | `tomlc17/` | https://github.com/cktan/tomlc17 (tag R261109) | `aa4ca1bc5fe6382ac631a8d1428077a9a084a64d` | 2026-11-09 | MIT (`tomlc17/LICENSE`) |
+| `stb/` | https://github.com/nothings/stb (stb_image v2.32) | `9600522de53973336fa033a289858a4354cbb04c` | 2026-11-12 | public domain or MIT (`stb/LICENSE`) |
 
 ## Patched copies
 
@@ -30,6 +31,8 @@ record the new commit here.
 - **nfd:** `CMakeLists.txt`, `src/`, `3ps/` (built with `NFD_PORTAL=ON`: on Linux/BSD
   it talks to xdg-desktop-portal over D-Bus, so no GTK dependency).
 - **tomlc17:** `src/tomlc17.{c,h}` (successor of the now-obsolete tomlc99).
+- **stb:** `stb_image.h` only, compiled in `src/video/image.c` as a PNG-only decoder
+  (no stdio, dimensions capped) for game pack icons and banners.
 - **open-roms:** prebuilt `bin/` images from the generic C64 set. These are free
   replacement ROMs, not Commodore's code. They're embedded into the executable at build
   time as the default system ROMs.
