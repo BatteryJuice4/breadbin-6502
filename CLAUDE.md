@@ -10,7 +10,8 @@ Repo-specific rules:
 
 - **No game-specific code here.** Gorf (or any game) lives in its own repo. Add generic,
   config-driven options instead.
-- **Only `src/core/core_chips.c` includes chips headers.** Everything else goes through
+- **Only `src/core/core_chips.c` includes chips headers.** It uses the patched
+  `src/core/patched/c64.h` (expansion port added), not `external/chips/systems/c64.h`. Everything else goes through
   `src/core/core.h`.
 - **Determinism:** the core runs a fixed cycle count per frame. Never feed wall-clock
   time or unseeded randomness into emulation. `tests/test_core.c` checks this.

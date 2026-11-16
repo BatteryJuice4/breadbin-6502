@@ -11,6 +11,7 @@
 #include "core/core.h"
 #include "input/input.h"
 #include "platform/paths.h"
+#include "rom/rom_file.h"
 #include "rom/sysroms.h"
 #include "video/video.h"
 
@@ -37,7 +38,25 @@ static struct {
     int scale;
     int joy_port;
     const char* sysrom_dir;
+    const char* cart_path;
+    char title[128];
 } app;
+
+// Load a cartridge file and insert it (resets the machine). Errors go to stderr
+// for now; the Select-ROM screen (Phase 3) will show them in the window.
+static bool load_cart_file(const char* path) {
+    static cart_t cart;     // ~16 KB, keep off the stack
+    char err[256];
+    if (!rom_load_cart(path, 0, &cart, err, sizeof(err))) {
+        fprintf(stderr, "breadbin-6502: %s\n", err);
+        return false;
+    }
+    core_insert_cart(app.core, &cart);
+    fprintf(stderr, "breadbin-6502: cartridge \"%s\" (%s, sha1 %s)\n",
+            cart.name[0] ? cart.name : path, cart_mode_name(cart.mode), cart.sha1);
+    snprintf(app.title, sizeof(app.title), "Breadbin-6502 - %s", cart.name[0] ? cart.name : "cartridge");
+    return true;
+}
 
 static void init_cb(void) {
     video_init();
@@ -73,6 +92,14 @@ static void event_cb(const sapp_event* ev) {
             return;     // reserved: opens the launcher menu (Phase 3)
         }
     }
+    if (ev->type == SAPP_EVENTTYPE_FILES_DROPPED) {
+        if (sapp_get_num_dropped_files() > 0 && load_cart_file(sapp_get_dropped_file_path(0))) {
+            input_release_all();
+            app.accum = 0.0;
+            sapp_set_window_title(app.title);
+        }
+        return;
+    }
     input_handle_event(ev);
 }
 
@@ -85,7 +112,8 @@ static void cleanup_cb(void) {
 static void usage(void) {
     fprintf(stderr,
         "Breadbin-6502 " BB_VERSION "\n"
-        "usage: breadbin-6502 [options]\n"
+        "usage: breadbin-6502 [options] [cartridge.crt|cartridge.bin]\n"
+        "  (a cartridge can also be dragged onto the window)\n"
         "  --sysroms DIR   load real C64 system ROMs (kernal.rom, basic.rom, chargen.rom) from DIR\n"
         "                  default: <config dir>/roms/system, falling back to the bundled Open ROMs\n"
         "  --joyport N     joystick port for the keypad joystick (1 or 2, default 2)\n"
@@ -103,6 +131,7 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--joyport") && v) { app.joy_port = atoi(v); i++; }
         else if (!strcmp(a, "--scale") && v)   { app.scale = atoi(v); i++; }
         else if (!strcmp(a, "--frames") && v)  { app.quit_after_frames = atol(v); i++; }
+        else if (a[0] != '-' && !app.cart_path) { app.cart_path = a; }
         else { usage(); return false; }
     }
     if (app.scale < 1) app.scale = 1;
@@ -148,6 +177,10 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
     app.frame_period = 1.0 / core_frame_rate(app.core);
     input_init(app.joy_port);
+    snprintf(app.title, sizeof(app.title), "Breadbin-6502");
+    if (app.cart_path) {
+        load_cart_file(app.cart_path);  // on failure: keep running at the BASIC prompt
+    }
 
     const core_video_t fb = core_video(app.core);
     int w, h;
@@ -159,7 +192,9 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .cleanup_cb = cleanup_cb,
         .width = w,
         .height = h,
-        .window_title = "Breadbin-6502",
+        .window_title = app.title,
+        .enable_dragndrop = true,
+        .max_dropped_files = 1,
         .logger.func = slog_func,
     };
 }

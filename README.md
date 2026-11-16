@@ -9,8 +9,8 @@ games are published as separate repos that pin a Breadbin-6502 release.
 
 **No game ROMs are included.** You supply your own dumps.
 
-> Status: **Phase 1 (skeleton).** Boots to BASIC with sound, keyboard and keypad
-> joystick. Cartridges, the launcher menu, game packs and mods come next.
+> Status: **Phase 2 (cartridges).** Runs standard 8K, 16K and Ultimax cartridges
+> (`.crt`, or raw `.bin` at $8000). The launcher menu, game packs and mods come next.
 
 ## Building
 
@@ -24,8 +24,16 @@ Linux build dependencies (Debian/Ubuntu names):
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ctest --test-dir build --output-on-failure
-./build/breadbin-6502
+./build/breadbin-6502 path/to/game.crt
 ```
+
+You can also drag a `.crt` or `.bin` file onto the window. Without a cartridge,
+the C64 starts at the BASIC prompt.
+
+Supported cartridge types so far: `.crt` hardware type 0 (normal cartridge) as 8K,
+16K or Ultimax. Raw `.bin` dumps of 4K/8K/16K are loaded at $8000. Bank-switching
+types (Ocean, Magic Desk, EasyFlash, ...) are added when a game needs them, and are
+reported as unsupported until then.
 
 Windows (MSVC) and macOS work the same way, without extra dependencies.
 
@@ -59,7 +67,7 @@ You can also pass `--sysroms <folder>`.
 | F11 | toggle fullscreen |
 | Esc | reserved for the launcher menu |
 
-Command-line options: `--sysroms DIR`, `--joyport 1|2`, `--scale N`, `--frames N`.
+Command-line options: `[cartridge]`, `--sysroms DIR`, `--joyport 1|2`, `--scale N`, `--frames N`.
 
 ## License
 
