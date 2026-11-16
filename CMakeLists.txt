@@ -21,7 +21,7 @@ option(BB_BUILD_TESTS "Build unit / smoke tests" ON)
 set(BB_GAMEPACK_DIR "" CACHE PATH "Game pack folder (game.toml, icon.png, banner.png) to embed; empty = none")
 set(BB_OUTPUT_NAME "breadbin-6502" CACHE STRING "File name of the executable")
 
-include(cmake/embed.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/embed.cmake)
 
 # Warnings apply to our code only; vendored headers come in as SYSTEM includes.
 if(MSVC)
