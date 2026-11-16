@@ -2,7 +2,7 @@
 #include "input/keynames.h"
 #include "platform/paths.h"
 
-#include "tomlc17.h"
+#include "settings/toml_util.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -41,89 +41,10 @@ void settings_default(settings_t* s) {
 
 // ---- parsing ---------------------------------------------------------------
 
-typedef struct {
-    char* buf;
-    size_t size;
-    size_t len;
-} warn_t;
-
-static void warn(warn_t* w, const char* fmt, ...) {
-    if (!w->buf || w->size == 0 || w->len + 1 >= w->size) return;
-    va_list args;
-    va_start(args, fmt);
-    int n = vsnprintf(w->buf + w->len, w->size - w->len, fmt, args);
-    va_end(args);
-    if (n > 0) {
-        w->len += (size_t)n;
-        if (w->len >= w->size) w->len = w->size - 1;
-        if (w->len + 1 < w->size) { w->buf[w->len++] = '\n'; w->buf[w->len] = 0; }
-    }
-}
-
-static bool get_bool(toml_datum_t tab, const char* key, bool* out, warn_t* w, const char* sect) {
-    toml_datum_t d = toml_get(tab, key);
-    if (d.type == TOML_UNKNOWN) return false;
-    if (d.type != TOML_BOOLEAN) { warn(w, "[%s] %s: expected true/false", sect, key); return false; }
-    *out = d.u.boolean;
-    return true;
-}
-
-static bool get_int(toml_datum_t tab, const char* key, int lo, int hi, int* out, warn_t* w, const char* sect) {
-    toml_datum_t d = toml_get(tab, key);
-    if (d.type == TOML_UNKNOWN) return false;
-    if (d.type != TOML_INT64 || d.u.int64 < lo || d.u.int64 > hi) {
-        warn(w, "[%s] %s: expected an integer %d..%d", sect, key, lo, hi);
-        return false;
-    }
-    *out = (int)d.u.int64;
-    return true;
-}
-
-static bool get_float(toml_datum_t tab, const char* key, double lo, double hi, float* out, warn_t* w, const char* sect) {
-    toml_datum_t d = toml_get(tab, key);
-    if (d.type == TOML_UNKNOWN) return false;
-    double v;
-    if (d.type == TOML_FP64) v = d.u.fp64;
-    else if (d.type == TOML_INT64) v = (double)d.u.int64;
-    else { warn(w, "[%s] %s: expected a number", sect, key); return false; }
-    if (v < lo || v > hi) { warn(w, "[%s] %s: expected %g..%g", sect, key, lo, hi); return false; }
-    *out = (float)v;
-    return true;
-}
-
-// A key binding: "Name" or ["Name", "Name"]. Unknown names are skipped with a warning
-// (e.g. "Gamepad_A" until gamepads are supported).
-static void get_keys(toml_datum_t tab, const char* key, int* out, int max, warn_t* w) {
-    toml_datum_t d = toml_get(tab, key);
-    if (d.type == TOML_UNKNOWN) return;
-    const char* names[8];
-    int n = 0;
-    if (d.type == TOML_STRING) {
-        names[n++] = d.u.s;
-    } else if (d.type == TOML_ARRAY) {
-        for (int i = 0; i < d.u.arr.size && n < 8; i++) {
-            if (d.u.arr.elem[i].type == TOML_STRING) names[n++] = d.u.arr.elem[i].u.s;
-            else warn(w, "[input] %s: entries must be key name strings", key);
-        }
-    } else {
-        warn(w, "[input] %s: expected a key name or a list of key names", key);
-        return;
-    }
-    int codes[INPUT_MAX_BINDS] = { 0 };
-    int nc = 0;
-    for (int i = 0; i < n; i++) {
-        int code = input_key_from_name(names[i]);
-        if (!code) { warn(w, "[input] %s: unknown key \"%s\" ignored", key, names[i]); continue; }
-        if (nc < max) codes[nc++] = code;
-        else warn(w, "[input] %s: only %d keys per action, \"%s\" ignored", key, max, names[i]);
-    }
-    for (int i = 0; i < max; i++) out[i] = codes[i];
-}
-
 bool settings_parse(settings_t* s, const char* text, size_t len,
                     char* err, size_t err_size, char* warnings, size_t warnings_size) {
-    warn_t w = { warnings, warnings_size, 0 };
-    if (warnings && warnings_size) warnings[0] = 0;
+    tu_warn_t w;
+    tu_warn_init(&w, warnings, warnings_size);
     toml_result_t r = toml_parse(text, (int)len);
     if (!r.ok) {
         if (err) snprintf(err, err_size, "%s", r.errmsg);
@@ -137,46 +58,46 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         toml_datum_t p = toml_get(rom, "path");
         if (p.type == TOML_STRING) {
             if ((size_t)p.u.str.len < sizeof(t.rom_path)) memcpy(t.rom_path, p.u.s, (size_t)p.u.str.len + 1);
-            else warn(&w, "[rom] path: too long");
+            else tu_warn(&w, "[rom] path: too long");
         } else if (p.type != TOML_UNKNOWN) {
-            warn(&w, "[rom] path: expected a string");
+            tu_warn(&w, "[rom] path: expected a string");
         }
     }
 
     toml_datum_t v = toml_get(r.toptab, "video");
     if (v.type == TOML_TABLE) {
-        get_int(v, "scale", 1, 8, &t.video.window_scale, &w, "video");
-        get_bool(v, "fullscreen", &t.video.fullscreen, &w, "video");
-        get_bool(v, "integer_scaling", &t.video.integer_scaling, &w, "video");
-        get_bool(v, "aspect_correction", &t.video.aspect_correction, &w, "video");
-        get_bool(v, "crop_border", &t.video.crop_border, &w, "video");
+        tu_get_int(v, "scale", 1, 8, &t.video.window_scale, &w, "video");
+        tu_get_bool(v, "fullscreen", &t.video.fullscreen, &w, "video");
+        tu_get_bool(v, "integer_scaling", &t.video.integer_scaling, &w, "video");
+        tu_get_bool(v, "aspect_correction", &t.video.aspect_correction, &w, "video");
+        tu_get_bool(v, "crop_border", &t.video.crop_border, &w, "video");
         toml_datum_t f = toml_get(v, "filter");
         if (f.type == TOML_STRING) {
             if (!strcmp(f.u.s, "nearest")) t.video.filter = VIDEO_FILTER_NEAREST;
             else if (!strcmp(f.u.s, "smooth")) t.video.filter = VIDEO_FILTER_LINEAR;
-            else warn(&w, "[video] filter: expected \"nearest\" or \"smooth\"");
+            else tu_warn(&w, "[video] filter: expected \"nearest\" or \"smooth\"");
         } else if (f.type != TOML_UNKNOWN) {
-            warn(&w, "[video] filter: expected a string");
+            tu_warn(&w, "[video] filter: expected a string");
         }
     }
 
     toml_datum_t a = toml_get(r.toptab, "audio");
     if (a.type == TOML_TABLE) {
-        get_float(a, "volume", 0.0, 1.0, &t.audio.volume, &w, "audio");
-        get_bool(a, "mute", &t.audio.mute, &w, "audio");
-        get_int(a, "latency_ms", 20, 250, &t.audio.latency_ms, &w, "audio");
+        tu_get_float(a, "volume", 0.0, 1.0, &t.audio.volume, &w, "audio");
+        tu_get_bool(a, "mute", &t.audio.mute, &w, "audio");
+        tu_get_int(a, "latency_ms", 20, 250, &t.audio.latency_ms, &w, "audio");
     }
 
     toml_datum_t in = toml_get(r.toptab, "input");
     if (in.type == TOML_TABLE) {
         for (int i = 0; i < INPUT_ACTION_COUNT; i++) {
-            get_keys(in, action_keys[i], t.input.keys[i], INPUT_MAX_BINDS, &w);
+            tu_get_keys(in, action_keys[i], t.input.keys[i], INPUT_MAX_BINDS, &w, "input");
         }
-        get_int(in, "joystick_port", 1, 2, &t.input.joystick_port, &w, "input");
+        tu_get_int(in, "joystick_port", 1, 2, &t.input.joystick_port, &w, "input");
         int menu[1] = { t.input.menu_key };
-        get_keys(in, "menu", menu, 1, &w);
+        tu_get_keys(in, "menu", menu, 1, &w, "input");
         if (menu[0]) t.input.menu_key = menu[0];
-        else if (toml_get(in, "menu").type != TOML_UNKNOWN) warn(&w, "[input] menu: a menu key is required, keeping the old one");
+        else if (toml_get(in, "menu").type != TOML_UNKNOWN) tu_warn(&w, "[input] menu: a menu key is required, keeping the old one");
     }
 
     toml_free(r);

@@ -1,0 +1,94 @@
+# Game packs
+
+A game pack tells Breadbin-6502 about one game: its name, which ROM dumps are known
+to be good, and the default controls and display settings. Without a game pack the
+launcher runs in **generic mode**: any cartridge is accepted and the built-in
+defaults apply.
+
+A game pack never contains the game itself. Players always supply their own dump.
+
+## Layout
+
+```
+mygame/
+├── game.toml     required
+├── icon.png      optional: window/taskbar icon (square, up to 512x512)
+└── banner.png    optional: shown on the Select ROM screen and in the menu (up to 2048x2048)
+```
+
+Use original artwork only. Don't ship the game's box art, logos or screenshots.
+
+## Where the launcher looks
+
+1. `--gamepack DIR` on the command line.
+2. A pack **built into the executable**. Game repos do this with the CMake option
+   `-DBB_GAMEPACK_DIR=path/to/pack` (and usually `-DBB_OUTPUT_NAME=mygame` to name
+   the executable). Re-run CMake after adding or removing `icon.png`/`banner.png`.
+3. A `gamepack/` folder next to the executable.
+
+`--generic` skips 2 and 3. Each game keeps its own settings in
+`<config dir>/games/<id>/settings.toml`.
+
+## game.toml
+
+```toml
+id      = "mygame"         # required: a-z 0-9 - _ (1-63 chars), used for the settings folder
+title   = "My Game"        # required: window title and menus
+media   = "cartridge"      # "cartridge" (default) | "disk" | "tape" (disk/tape: not yet)
+video_standard = "PAL"     # "PAL" (default) | "NTSC" (NTSC timing isn't emulated yet)
+sid_model = "6581"         # "6581" (default) | "8580" (only the 6581 is emulated so far)
+joystick_port = 2          # default joystick port (1 or 2)
+min_launcher_version = "0.1.0"   # refuse to start on older launchers
+system_roms = "any"        # "any" (default) | "original": needs real Commodore ROMs
+
+[rom]
+cart_type    = "auto"      # "auto" (from the .crt header) | "8k" | "16k" | "ultimax"
+load_address = 0x8000      # raw .bin dumps only: 0x8000 (default), 0xA000, 0xE000, 0xF000
+known_sha1   = []          # SHA-1 of the ROM chip data (see below)
+
+[input.default]            # default keys; players can rebind them in the menu
+up    = "Up"
+down  = "Down"
+left  = "Left"
+right = "Right"
+fire  = ["Space", "LCtrl"] # up to two keys per action
+menu  = "Escape"           # opens the launcher menu
+
+[video]                    # display defaults (players can change them)
+default_scale     = 3      # window scale 1-8
+integer_scaling   = true
+aspect_correction = true
+crop_border       = false  # show only the 320x200 picture
+filter            = "nearest"   # "nearest" | "smooth"
+palette           = "pepto"     # reserved: more palettes come later
+extended_view_max_width = 0     # reserved: 0 = no extended (widescreen) view
+```
+
+Everything except `id` and `title` is optional. Unknown keys and invalid values are
+reported as warnings on the console and otherwise ignored, so a typo never stops a game
+from starting.
+
+### Key names
+
+Letters `A`-`Z`, digits `0`-`9`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`,
+`Up`/`Down`/`Left`/`Right`, `LCtrl`/`RCtrl`, `LShift`/`RShift`, `LAlt`/`RAlt`,
+`F1`-`F12`, keypad keys `KP_0`-`KP_9`, `KP_Enter`, and so on (case-insensitive). Gamepad
+buttons (`Gamepad_A`) are accepted but ignored until gamepad support arrives. Keys bound
+to the joystick don't also type on the C64 keyboard, so a game that needs a typed key
+(for example `P` for pause) just works as long as that key isn't bound.
+
+### ROM hashes
+
+`known_sha1` lists the SHA-1 of the ROM **chip data only**: the CHIP packet payloads of
+a `.crt` file, or the whole of a raw `.bin`. The same dump therefore matches whether it's
+wrapped as `.crt` or not. The launcher shows the SHA-1 of the loaded cartridge in the
+menu's ROM tab.
+
+When the player picks a ROM that isn't in the list (or is a different cartridge type
+than `cart_type`), the launcher warns them and lets them play anyway. With an empty
+list, ROMs aren't checked.
+
+## Example
+
+See `examples/gamepack/` for a minimal pack you can try with
+`breadbin-6502 --gamepack examples/gamepack`.

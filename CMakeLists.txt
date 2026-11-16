@@ -17,6 +17,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(BB_BUILD_TESTS "Build unit / smoke tests" ON)
+# Branded builds (game repos): build a game pack into the executable and rename it.
+set(BB_GAMEPACK_DIR "" CACHE PATH "Game pack folder (game.toml, icon.png, banner.png) to embed; empty = none")
+set(BB_OUTPUT_NAME "breadbin-6502" CACHE STRING "File name of the executable")
 
 include(cmake/embed.cmake)
 
@@ -37,6 +40,10 @@ target_include_directories(bb_external_sokol SYSTEM INTERFACE external/sokol ext
 add_library(bb_external_toml STATIC external/tomlc17/tomlc17.c)
 target_include_directories(bb_external_toml SYSTEM PUBLIC external/tomlc17)
 set_target_properties(bb_external_toml PROPERTIES C_EXTENSIONS ON)
+
+# stb_image (public domain / MIT), PNG decoding for game pack branding
+add_library(bb_external_stb INTERFACE)
+target_include_directories(bb_external_stb SYSTEM INTERFACE external/stb)
 
 # Dear ImGui (MIT), UI only
 add_library(bb_external_imgui STATIC
@@ -62,6 +69,24 @@ bb_embed(${BB_GEN_DIR}/openroms_kernal.c  bb_openroms_kernal  ${CMAKE_CURRENT_SO
 bb_embed(${BB_GEN_DIR}/openroms_basic.c   bb_openroms_basic   ${CMAKE_CURRENT_SOURCE_DIR}/external/open-roms/basic_generic.rom)
 bb_embed(${BB_GEN_DIR}/openroms_chargen.c bb_openroms_chargen ${CMAKE_CURRENT_SOURCE_DIR}/external/open-roms/chargen_openroms.rom)
 
+# ---- embedded game pack (branded builds) -----------------------------------
+set(BB_GAMEPACK_TOML "")
+set(BB_GAMEPACK_ICON "")
+set(BB_GAMEPACK_BANNER "")
+if(BB_GAMEPACK_DIR)
+    get_filename_component(BB_GAMEPACK_ABS "${BB_GAMEPACK_DIR}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    if(NOT EXISTS "${BB_GAMEPACK_ABS}/game.toml")
+        message(FATAL_ERROR "BB_GAMEPACK_DIR: no game.toml in ${BB_GAMEPACK_ABS}")
+    endif()
+    message(STATUS "Embedding game pack: ${BB_GAMEPACK_ABS}")
+    set(BB_GAMEPACK_TOML "${BB_GAMEPACK_ABS}/game.toml")
+    set(BB_GAMEPACK_ICON "${BB_GAMEPACK_ABS}/icon.png")
+    set(BB_GAMEPACK_BANNER "${BB_GAMEPACK_ABS}/banner.png")
+endif()
+bb_embed_optional(${BB_GEN_DIR}/gamepack_toml.c   bb_gamepack_toml   "${BB_GAMEPACK_TOML}")
+bb_embed_optional(${BB_GEN_DIR}/gamepack_icon.c   bb_gamepack_icon   "${BB_GAMEPACK_ICON}")
+bb_embed_optional(${BB_GEN_DIR}/gamepack_banner.c bb_gamepack_banner "${BB_GAMEPACK_BANNER}")
+
 # ---- core: headless emulator + system ROMs (no window/audio deps) ----------
 add_library(bb_core STATIC
     src/core/core_chips.c
@@ -71,6 +96,9 @@ add_library(bb_core STATIC
     src/rom/rom_file.c
     src/platform/paths.c
     src/settings/settings.c
+    src/settings/toml_util.c
+    src/gamepack/gamepack.c
+    src/gamepack/gamepack_load.c
     src/input/keynames.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
@@ -97,9 +125,14 @@ add_executable(breadbin-6502 WIN32
     src/input/input.c
     src/ui/ui.cpp
     src/platform/filedialog.c
+    src/video/image.c
     ${BB_SOKOL_IMPL}
+    ${BB_GEN_DIR}/gamepack_toml.c
+    ${BB_GEN_DIR}/gamepack_icon.c
+    ${BB_GEN_DIR}/gamepack_banner.c
 )
-target_link_libraries(breadbin-6502 PRIVATE bb_core bb_external_sokol bb_external_imgui)
+set_target_properties(breadbin-6502 PROPERTIES OUTPUT_NAME "${BB_OUTPUT_NAME}")
+target_link_libraries(breadbin-6502 PRIVATE bb_core bb_external_sokol bb_external_imgui bb_external_stb)
 if(BB_HAVE_NFD)
     target_link_libraries(breadbin-6502 PRIVATE nfd)
     target_compile_definitions(breadbin-6502 PRIVATE BB_HAVE_NFD)
@@ -156,6 +189,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_settings PRIVATE bb_core)
     target_compile_options(test_settings PRIVATE ${BB_WARNINGS})
     add_test(NAME settings COMMAND test_settings)
+
+    add_executable(test_gamepack tests/test_gamepack.c)
+    target_link_libraries(test_gamepack PRIVATE bb_core)
+    target_compile_options(test_gamepack PRIVATE ${BB_WARNINGS})
+    add_test(NAME gamepack COMMAND test_gamepack ${CMAKE_CURRENT_SOURCE_DIR}/examples/gamepack/game.toml)
 
     add_executable(test_sha1 tests/test_sha1.c)
     target_link_libraries(test_sha1 PRIVATE bb_core)

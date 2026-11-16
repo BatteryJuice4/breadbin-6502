@@ -40,6 +40,9 @@ bool platform_home_dir(char* out, size_t out_size);
 // Path separator for display/joining.
 char platform_path_sep(void);
 
+// Folder containing the running executable (no trailing separator).
+bool platform_exe_dir(char* out, size_t out_size);
+
 #ifdef __cplusplus
 }
 #endif

@@ -41,6 +41,11 @@ struct Ui {
     std::vector<BrowserEntry> browser_entries;
     int browser_selected = -1;
     std::string browser_error;
+
+    // game pack banner
+    sg_image banner_img = {};
+    sg_view banner_view = {};
+    int banner_w = 0, banner_h = 0;
 } g;
 
 const ImVec4 kErrorColor(1.0f, 0.45f, 0.40f, 1.0f);
@@ -121,12 +126,52 @@ void draw_message(const ui_state_t* st) {
     }
 }
 
-const char* rom_status_text(rom_status_t s) {
-    switch (s) {
-        case ROM_STATUS_GENERIC: return "Generic mode (no game pack): any cartridge is accepted.";
-        case ROM_STATUS_KNOWN:   return "Known good dump.";
-        case ROM_STATUS_UNKNOWN: return "Not a known dump of this game. Mods may not work.";
-        default:                 return "No cartridge loaded.";
+std::string rom_status_text(const ui_state_t* st) {
+    switch (st->rom_status) {
+        case ROM_STATUS_GENERIC:    return "Generic mode (no game pack): any cartridge is accepted.";
+        case ROM_STATUS_KNOWN:      return std::string("Verified: a known good dump of ") + st->game_title + ".";
+        case ROM_STATUS_UNKNOWN:    return std::string("Not a known dump of ") + st->game_title + ". Mods may not work.";
+        case ROM_STATUS_UNVERIFIED: return "Not checked: this game pack doesn't list known dumps yet.";
+        default:                    return "No cartridge loaded.";
+    }
+}
+
+// Banner scaled to the available width (and at most max_h pixels high), centered.
+bool draw_banner(float max_h) {
+    if (g.banner_view.id == SG_INVALID_ID || g.banner_w <= 0) return false;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    float w = avail, h = avail * (float)g.banner_h / (float)g.banner_w;
+    if (h > max_h) { h = max_h; w = h * (float)g.banner_w / (float)g.banner_h; }
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - w) * 0.5f);
+    ImGui::Image((ImTextureID)simgui_imtextureid(g.banner_view), ImVec2(w, h));
+    return true;
+}
+
+void draw_pack_notes(const ui_state_t* st) {
+    if (st->pack_notes[0]) dim_text("%s", st->pack_notes);
+}
+
+void confirm_window(ui_state_t* st) {
+    if (!st->confirm_open) return;
+    const ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.75f, 0.0f), ImGuiCond_Always);
+    ImGui::OpenPopup("Unknown ROM");
+    if (ImGui::BeginPopupModal("Unknown ROM", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+        ImGui::TextWrapped("%s", st->confirm_text);
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        if (ImGui::Button("Play anyway")) {
+            st->act_confirm_play = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Choose another file")) {
+            st->act_confirm_cancel = true;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 
@@ -192,21 +237,35 @@ void select_rom_screen(ui_state_t* st) {
     center_next_window(0.85f, 0.0f);    // height 0 = fit content
     ImGui::Begin("##select", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                                       ImGuiWindowFlags_NoSavedSettings);
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
-    ImGui::TextUnformatted(st->game_title);
-    ImGui::PopFont();
+    if (!draw_banner(ImGui::GetIO().DisplaySize.y * 0.3f)) {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 2.0f);
+        ImGui::TextUnformatted(st->game_title);
+        ImGui::PopFont();
+    }
     ImGui::Separator();
     ImGui::Spacing();
-    ImGui::TextWrapped("Choose a Commodore 64 cartridge image (.crt or .bin) to play.");
-    dim_text("You can also drag the file onto this window.");
+    const bool blocked = st->blocked[0] != 0;
+    if (blocked) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+        ImGui::TextWrapped("%s", st->blocked);
+        ImGui::PopStyleColor();
+    } else if (st->has_pack) {
+        ImGui::TextWrapped("To play %s, choose your own dump of the cartridge (.crt or .bin).", st->game_title);
+        dim_text("You can also drag the file onto this window.");
+    } else {
+        ImGui::TextWrapped("Choose a Commodore 64 cartridge image (.crt or .bin) to play.");
+        dim_text("You can also drag the file onto this window.");
+    }
     ImGui::Spacing();
+    ImGui::BeginDisabled(blocked);
     if (ImGui::Button("Select ROM...")) st->act_select_rom = true;
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Settings...")) {
         st->menu_return = UI_SCREEN_SELECT_ROM;
         st->screen = UI_SCREEN_MENU;
     }
-    if (st->allow_no_cart) {
+    if (st->allow_no_cart && !blocked) {
         ImGui::SameLine();
         if (ImGui::Button("Start without cartridge")) st->act_no_cart = true;
     }
@@ -234,6 +293,13 @@ void binding_button(ui_state_t* st, int action, int slot, int keycode) {
 }
 
 void tab_rom(ui_state_t* st) {
+    if (st->has_pack) {
+        draw_banner(ImGui::GetIO().DisplaySize.y * 0.15f);
+        ImGui::Text("Game pack: %s (%s)", st->game_title, st->pack_id);
+        dim_text("From: %s", st->pack_source);
+        draw_pack_notes(st);
+        ImGui::Separator();
+    }
     if (st->cart_loaded) {
         ImGui::Text("Cartridge: %s", st->rom_name[0] ? st->rom_name : "(unnamed)");
         ImGui::TextWrapped("File: %s", st->rom_path[0] ? st->rom_path : "(command line)");
@@ -242,8 +308,9 @@ void tab_rom(ui_state_t* st) {
     } else {
         ImGui::TextUnformatted("No cartridge (BASIC).");
     }
-    ImGui::PushStyleColor(ImGuiCol_Text, st->rom_status == ROM_STATUS_UNKNOWN ? kErrorColor : kDimColor);
-    ImGui::TextWrapped("%s", rom_status_text(st->rom_status));
+    ImGui::PushStyleColor(ImGuiCol_Text, st->rom_status == ROM_STATUS_UNKNOWN ? kErrorColor :
+                                         st->rom_status == ROM_STATUS_KNOWN ? kOkColor : kDimColor);
+    ImGui::TextWrapped("%s", rom_status_text(st).c_str());
     ImGui::PopStyleColor();
     ImGui::Text("System ROMs: %s", st->system_roms);
     ImGui::Spacing();
@@ -269,10 +336,17 @@ void tab_video(ui_state_t* st) {
     if (ImGui::Combo("Filter", &filter, filters, 2)) { v.filter = (video_filter_t)filter; ch = true; }
     ImGui::BeginDisabled();
     int pal = 0;
-    const char* palettes[] = { "Colodore" };
+    const char* palettes[] = { "Pepto" };
     ImGui::Combo("Palette", &pal, palettes, 1);
     ImGui::EndDisabled();
     dim_text("More palettes are planned.");
+    ImGui::Spacing();
+    if (ImGui::Button("Reset video to defaults##video") && st->defaults) {
+        const bool fs = v.fullscreen;   // fullscreen is a window state, not a game default
+        v = st->defaults->video;
+        v.fullscreen = fs;
+        ch = true;
+    }
     if (ch) st->act_video_changed = true;
 }
 
@@ -325,6 +399,15 @@ void tab_input(ui_state_t* st) {
     }
     ImGui::Spacing();
     dim_text("Other keys type on the C64 keyboard. Gamepad support is planned.");
+    ImGui::Spacing();
+    if (ImGui::Button("Reset controls to defaults##input") && st->defaults) {
+        in = st->defaults->input;
+        st->act_input_changed = true;
+    }
+    if (st->has_pack) {
+        ImGui::SameLine();
+        dim_text("(the defaults come from the game pack)");
+    }
 }
 
 void menu_screen(ui_state_t* st) {
@@ -345,11 +428,21 @@ void menu_screen(ui_state_t* st) {
     const char* key = input_key_name(st->settings->input.menu_key);
     ImGui::TextColored(kDimColor, "  %s: %s", key ? key : "menu key", in_game ? "back to the game" : "back");
     ImGui::Separator();
+    // tab contents scroll above the version footer
+    const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 1.6f;
+    auto tab = [&](const char* name, void (*fn)(ui_state_t*)) {
+        if (ImGui::BeginTabItem(name)) {
+            ImGui::BeginChild("##tabbody", ImVec2(0, -footer_h));
+            fn(st);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+    };
     if (ImGui::BeginTabBar("tabs")) {
-        if (ImGui::BeginTabItem("ROM"))   { tab_rom(st);   ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Video")) { tab_video(st); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Audio")) { tab_audio(st); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Input")) { tab_input(st); ImGui::EndTabItem(); }
+        tab("ROM", tab_rom);
+        tab("Video", tab_video);
+        tab("Audio", tab_audio);
+        tab("Input", tab_input);
         ImGui::EndTabBar();
     }
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ImGui::GetTextLineHeightWithSpacing() * 1.5f);
@@ -426,7 +519,28 @@ void ui_init(void) {
 }
 
 void ui_shutdown(void) {
+    if (g.banner_view.id != SG_INVALID_ID) sg_destroy_view(g.banner_view);
+    if (g.banner_img.id != SG_INVALID_ID) sg_destroy_image(g.banner_img);
     simgui_shutdown();
+}
+
+void ui_set_banner(const unsigned char* rgba, int width, int height) {
+    if (!rgba || width <= 0 || height <= 0) return;
+    if (g.banner_view.id != SG_INVALID_ID) sg_destroy_view(g.banner_view);
+    if (g.banner_img.id != SG_INVALID_ID) sg_destroy_image(g.banner_img);
+    sg_image_desc d = {};
+    d.width = width;
+    d.height = height;
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    d.data.ptr = rgba;
+    d.data.size = (size_t)width * (size_t)height * 4;
+    d.label = "gamepack-banner";
+    g.banner_img = sg_make_image(&d);
+    sg_view_desc vd = {};
+    vd.texture.image = g.banner_img;
+    g.banner_view = sg_make_view(&vd);
+    g.banner_w = width;
+    g.banner_h = height;
 }
 
 bool ui_handle_event(const sapp_event* ev, ui_state_t* st) {
@@ -466,6 +580,7 @@ void ui_frame(ui_state_t* st) {
     }
     if (st->screen != UI_SCREEN_NONE) {
         file_browser_window(st);
+        confirm_window(st);
     } else {
         g.browser_open = false;
     }

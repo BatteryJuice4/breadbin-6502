@@ -9,9 +9,10 @@ games are published as separate repos that pin a Breadbin-6502 release.
 
 **No game ROMs are included.** You supply your own dumps.
 
-> Status: **Phase 3 (launcher shell).** Runs standard 8K, 16K and Ultimax cartridges
-> (`.crt`, or raw `.bin` at $8000) with a Select-ROM screen, an in-game menu and saved
-> settings. Game packs and mods come next.
+> Status: **Phase 4 (game packs).** Runs standard 8K, 16K and Ultimax cartridges
+> (`.crt`, or raw `.bin` at $8000) with a Select-ROM screen, an in-game menu, saved
+> settings and game packs (branding, default controls, ROM verification). Disk/tape
+> and mods come next.
 
 ## Building
 
@@ -45,15 +46,25 @@ Press **Esc** during play to pause and open the menu:
 - **Input:** joystick port (1 or 2), key bindings for the joystick (two keys per
   direction; click to rebind, right-click to clear) and the menu key
 
-Settings are saved per user:
+Settings are saved per user and per game (`<id>` is the game pack's id, or `generic`):
 
 | OS | File |
 |---|---|
-| Linux / BSD | `~/.config/breadbin-6502/games/generic/settings.toml` (or `$XDG_CONFIG_HOME/...`) |
-| Windows | `%APPDATA%\breadbin-6502\games\generic\settings.toml` |
-| macOS | `~/Library/Application Support/breadbin-6502/games/generic/settings.toml` |
+| Linux / BSD | `~/.config/breadbin-6502/games/<id>/settings.toml` (or `$XDG_CONFIG_HOME/...`) |
+| Windows | `%APPDATA%\breadbin-6502\games\<id>\settings.toml` |
+| macOS | `~/Library/Application Support/breadbin-6502/games/<id>/settings.toml` |
 
 A cartridge passed on the command line is played without being remembered.
+
+## Game packs
+
+A game pack (`game.toml`, plus an optional `icon.png` and `banner.png`) turns the
+launcher into a specific game: the window and menus use the game's title and artwork,
+the controls and display start with the game's defaults, and the ROM you pick is
+checked against known good dumps (you're warned about unknown dumps, and can still
+play). Game repos build their pack into the executable. You can also try one with
+`--gamepack DIR`. See [docs/gamepack.md](docs/gamepack.md) for the format and
+`examples/gamepack/` for a small example.
 
 Supported cartridge types so far: `.crt` hardware type 0 (normal cartridge) as 8K,
 16K or Ultimax. Raw `.bin` dumps of 4K/8K/16K are loaded at $8000. Bank-switching
@@ -94,7 +105,8 @@ You can also pass `--sysroms <folder>`.
 
 Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
 
-Command-line options: `[cartridge]`, `--sysroms DIR`, `--settings FILE`, `--scale N`,
+Command-line options: `[cartridge]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
+`--generic` (ignore built-in/bundled game packs), `--scale N`,
 `--frames N` (quit after N frames, for testing). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
 always use the built-in file browser.
 

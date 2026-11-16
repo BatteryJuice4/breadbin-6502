@@ -1,0 +1,22 @@
+# Example game pack (see docs/gamepack.md). It doesn't belong to a real game:
+# any 8K or 16K cartridge works with it, and none is "known", so no hash check is done.
+id    = "example"
+title = "Example Game Pack"
+media = "cartridge"
+joystick_port = 2
+min_launcher_version = "0.1.0"
+
+[rom]
+cart_type  = "auto"
+known_sha1 = []
+
+[input.default]
+up    = "Up"
+down  = "Down"
+left  = "Left"
+right = "Right"
+fire  = ["Space", "RCtrl"]
+
+[video]
+default_scale = 3
+crop_border   = false

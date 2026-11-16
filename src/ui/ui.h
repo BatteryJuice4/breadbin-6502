@@ -25,6 +25,7 @@ typedef enum {
     ROM_STATUS_GENERIC,         // no game pack: any cartridge accepted
     ROM_STATUS_KNOWN,           // matches a known dump of the game pack
     ROM_STATUS_UNKNOWN,         // game pack present, hash not in its list
+    ROM_STATUS_UNVERIFIED,      // game pack present but lists no known hashes
 } rom_status_t;
 
 #define UI_CAPTURE_NONE (-1)
@@ -34,8 +35,16 @@ typedef struct {
     ui_screen_t screen;
     ui_screen_t menu_return;    // where closing the menu goes (NONE or SELECT_ROM)
     settings_t* settings;       // edited in place
-    const char* game_title;     // "Breadbin-6502" in generic mode
+    const settings_t* defaults; // built-in + game pack defaults ("Reset to defaults")
+    const char* game_title;     // game pack title, "Breadbin-6502" in generic mode
     const char* version;
+
+    // game pack (has_pack false = generic mode)
+    bool has_pack;
+    const char* pack_id;
+    const char* pack_source;    // folder or "built in"
+    char pack_notes[512];       // e.g. "expects NTSC, running PAL" (one per line)
+    char blocked[1024];         // non-empty: the game can't start, explained here
 
     // current cartridge
     bool cart_loaded;
@@ -57,6 +66,11 @@ typedef struct {
     bool act_load_path;         // load_path chosen in the built-in browser
     char load_path[SETTINGS_PATH_MAX];
 
+    // "this doesn't look like a known dump" confirmation
+    bool confirm_open;
+    char confirm_text[512];
+    bool act_confirm_play, act_confirm_cancel;
+
     // key capture for rebinding
     int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY
     int capture_slot;
@@ -74,6 +88,9 @@ void ui_flush(void);
 void ui_draw(void);
 // Open the built-in file browser (fallback for the native dialog).
 void ui_open_file_browser(const char* start_dir);
+// Game pack banner (RGBA8), shown on the Select-ROM screen and in the ROM tab.
+// Call after ui_init(); pixels are copied.
+void ui_set_banner(const unsigned char* rgba, int width, int height);
 
 #ifdef __cplusplus
 }

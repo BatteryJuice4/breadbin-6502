@@ -19,6 +19,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #endif
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#endif
 
 #define BB_APP_DIR "breadbin-6502"
 
@@ -162,4 +167,34 @@ bool platform_home_dir(char* out, size_t out_size) {
     if (!h || !h[0]) return false;
     int n = snprintf(out, out_size, "%s", h);
     return n > 0 && (size_t)n < out_size;
+}
+
+bool platform_exe_dir(char* out, size_t out_size) {
+    char buf[4096];
+    bool ok = false;
+#if defined(_WIN32)
+    DWORD n = GetModuleFileNameA(NULL, buf, (DWORD)sizeof(buf));
+    ok = n > 0 && n < sizeof(buf);
+#elif defined(__APPLE__)
+    uint32_t size = (uint32_t)sizeof(buf);
+    char raw[4096];
+    ok = _NSGetExecutablePath(raw, &size) == 0 && realpath(raw, buf) != NULL;
+#elif defined(__FreeBSD__)
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
+    size_t size = sizeof(buf);
+    ok = sysctl(mib, 4, buf, &size, NULL, 0) == 0;
+#elif defined(__linux__)
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    ok = n > 0;
+    if (ok) buf[n] = 0;
+#endif
+    if (!ok) return false;
+    char* sep = strrchr(buf, '/');
+#if defined(_WIN32)
+    char* bs = strrchr(buf, '\\');
+    if (!sep || (bs && bs > sep)) sep = bs;
+#endif
+    if (!sep) return false;
+    *sep = 0;
+    return fmt(out, out_size, buf, "");
 }
