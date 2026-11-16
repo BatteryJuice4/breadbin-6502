@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/cart.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,6 +98,13 @@ core_video_t core_video(const core_t* core);
 void core_set_joystick(core_t* core, int port /* 1 or 2 */, uint8_t mask);
 void core_key_down(core_t* core, int key);
 void core_key_up(core_t* core, int key);
+
+// Cartridges. The image is copied; the caller may free it afterwards.
+// Inserting or removing a cartridge resets the machine (as on real hardware,
+// where carts are only swapped with the power off).
+bool core_insert_cart(core_t* core, const cart_t* cart);
+void core_remove_cart(core_t* core);
+bool core_has_cart(const core_t* core);
 
 // Raw 64 KB RAM access (not the CPU's banked view). For tests, cheats, fingerprints.
 uint8_t core_ram_read(const core_t* core, uint16_t addr);

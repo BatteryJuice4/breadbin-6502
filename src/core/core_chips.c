@@ -18,7 +18,7 @@
 #include "systems/c1530.h"
 #include "chips/m6522.h"
 #include "systems/c1541.h"
-#include "systems/c64.h"
+#include "core/patched/c64.h"   // chips c64.h + expansion port (see header)
 
 #include "core/core.h"
 
@@ -33,6 +33,7 @@ struct core {
     uint32_t cycles_per_frame;
     uint32_t frame_us;          // fixed per-frame time fed to the keyboard helper
     uint8_t joy[2];
+    bool has_cart;
 };
 
 core_t* core_create(const core_desc_t* desc) {
@@ -136,6 +137,33 @@ void core_key_down(core_t* core, int key) {
 
 void core_key_up(core_t* core, int key) {
     c64_key_up(&core->sys, key);
+}
+
+bool core_insert_cart(core_t* core, const cart_t* cart) {
+    if (!cart) {
+        return false;
+    }
+    bool exrom, game;
+    switch (cart->mode) {
+        case CART_MODE_8K:      exrom = true;  game = false; break;
+        case CART_MODE_16K:     exrom = true;  game = true;  break;
+        case CART_MODE_ULTIMAX: exrom = false; game = true;  break;
+        default: return false;
+    }
+    c64_set_expansion(&core->sys, exrom, game, cart->roml, cart->romh);
+    core->has_cart = true;
+    core_reset(core);
+    return true;
+}
+
+void core_remove_cart(core_t* core) {
+    c64_set_expansion(&core->sys, false, false, NULL, NULL);
+    core->has_cart = false;
+    core_reset(core);
+}
+
+bool core_has_cart(const core_t* core) {
+    return core->has_cart;
 }
 
 uint8_t core_ram_read(const core_t* core, uint16_t addr) {

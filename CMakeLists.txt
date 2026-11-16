@@ -40,8 +40,10 @@ bb_embed(${BB_GEN_DIR}/openroms_chargen.c bb_openroms_chargen ${CMAKE_CURRENT_SO
 # ---- core: headless emulator + system ROMs (no window/audio deps) ----------
 add_library(bb_core STATIC
     src/core/core_chips.c
+    src/core/cart.c
     src/rom/sysroms.c
     src/rom/sha1.c
+    src/rom/rom_file.c
     src/platform/paths.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
@@ -105,6 +107,16 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_core PRIVATE bb_core)
     target_compile_options(test_core PRIVATE ${BB_WARNINGS})
     add_test(NAME core COMMAND test_core)
+
+    add_executable(test_cart tests/test_cart.c)
+    target_link_libraries(test_cart PRIVATE bb_core)
+    target_compile_options(test_cart PRIVATE ${BB_WARNINGS})
+    add_test(NAME cart COMMAND test_cart)
+
+    add_executable(test_cart_boot tests/test_cart_boot.c)
+    target_link_libraries(test_cart_boot PRIVATE bb_core)
+    target_compile_options(test_cart_boot PRIVATE ${BB_WARNINGS})
+    add_test(NAME cart_boot COMMAND test_cart_boot)
 
     add_executable(test_sha1 tests/test_sha1.c)
     target_link_libraries(test_sha1 PRIVATE bb_core)

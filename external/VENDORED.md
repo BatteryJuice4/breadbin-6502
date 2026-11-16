@@ -9,6 +9,14 @@ record the new commit here.
 | `sokol/` | https://github.com/floooh/sokol | `93aa187b5d387cc24b7290b3ca3f13f61e139e7c` | 2026-11-10 | zlib (`sokol/LICENSE`) |
 | `open-roms/` | https://github.com/MEGA65/open-roms | `ad178dbe4d48cd6a317737a8e0e7e662f7e33d32` | 2026-05-16 | LGPL-3.0-or-later (`open-roms/LICENSE`, `COPYING`, `COPYING.LESSER`) |
 
+## Patched copies
+
+- `src/core/patched/c64.h`: chips `systems/c64.h` @ `7ef8776`, altered to add the
+  expansion port (EXROM/GAME, ROML/ROMH banks, PLA-accurate CPU memory map, and the
+  Ultimax VIC view). Every change is marked `BREADBIN PATCH`. The original stays
+  untouched in `external/chips/`. When updating chips, re-apply the patch to the new
+  `c64.h` and re-run `test_cart_boot`.
+
 ## What was copied
 
 - **chips:** `chips/{chips_common,m6502,m6526,m6569,m6581,kbd,mem,clk,m6522}.h`,
