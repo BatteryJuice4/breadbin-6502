@@ -79,6 +79,9 @@ typedef struct {
     int width, height;          // full framebuffer size (row stride == width)
     int screen_x, screen_y;     // visible area (border included) inside the framebuffer
     int screen_w, screen_h;
+    int display_x, display_y;   // the 320x200 display window (inside the border), framebuffer coords
+    int display_w, display_h;
+    float pixel_aspect;         // displayed width/height of one pixel (PAL ~0.936)
 } core_video_t;
 
 // Returns NULL on invalid arguments (e.g. wrong ROM sizes, unsupported video std).

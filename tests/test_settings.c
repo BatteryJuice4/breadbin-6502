@@ -1,0 +1,137 @@
+// Unit tests for settings (TOML load/save) and key names.
+#include "settings/settings.h"
+#include "input/keynames.h"
+#include "platform/paths.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int failures;
+#define CHECK(cond, ...) do { if (!(cond)) { fprintf(stderr, "FAIL %s:%d: ", __FILE__, __LINE__); \
+    fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); failures++; } } while (0)
+
+static char err[256], warns[2048];
+
+static bool parse(settings_t* s, const char* text) {
+    return settings_parse(s, text, strlen(text), err, sizeof(err), warns, sizeof(warns));
+}
+
+static void test_keynames(void) {
+    int named = 0;
+    for (int code = 1; code < INPUT_MAX_KEYCODE; code++) {
+        const char* n = input_key_name(code);
+        if (!n) continue;
+        named++;
+        CHECK(input_key_from_name(n) == code, "key name '%s' doesn't round-trip", n);
+    }
+    CHECK(named > 100, "only %d named keys", named);
+    CHECK(input_key_from_name("lctrl") == input_key_from_name("LCtrl"), "names not case-insensitive");
+    CHECK(input_key_from_name("Ctrl") == input_key_from_name("LCtrl"), "alias Ctrl");
+    CHECK(input_key_from_name("Return") == input_key_from_name("Enter"), "alias Return");
+    CHECK(input_key_from_name("Gamepad_A") == 0, "gamepad names aren't keys");
+    CHECK(input_key_from_name(NULL) == 0 && input_key_from_name("") == 0, "empty names");
+}
+
+static void test_roundtrip(void) {
+    settings_t a, b;
+    settings_default(&a);
+    strcpy(a.rom_path, "C:\\Games\\C64\\\"quoted\" name\tx.crt");
+    a.video = (video_settings_t){ 5, true, false, false, true, VIDEO_FILTER_LINEAR };
+    a.audio = (audio_settings_t){ 0.25f, true, 120 };
+    a.input.keys[INPUT_FIRE][0] = input_key_from_name("Space");
+    a.input.keys[INPUT_FIRE][1] = input_key_from_name("LCtrl");
+    a.input.keys[INPUT_UP][1] = input_key_from_name("W");
+    a.input.joystick_port = 1;
+    a.input.menu_key = input_key_from_name("F12");
+
+    char text[4096];
+    size_t need = settings_serialize(&a, NULL, 0);
+    CHECK(need > 0 && need < sizeof(text), "serialize size %zu", need);
+    CHECK(settings_serialize(&a, text, sizeof(text)) == need, "serialize size mismatch");
+
+    settings_default(&b);
+    CHECK(parse(&b, text), "re-parse failed: %s\n%s", err, text);
+    CHECK(warns[0] == 0, "warnings on round-trip: %s", warns);
+    CHECK(memcmp(&a, &b, sizeof(a)) == 0 || (
+          !strcmp(a.rom_path, b.rom_path) &&
+          !memcmp(&a.video, &b.video, sizeof(a.video)) &&
+          a.audio.mute == b.audio.mute && a.audio.latency_ms == b.audio.latency_ms &&
+          a.audio.volume > b.audio.volume - 0.001f && a.audio.volume < b.audio.volume + 0.001f &&
+          !memcmp(&a.input, &b.input, sizeof(a.input))), "round-trip mismatch:\n%s", text);
+    CHECK(!strcmp(a.rom_path, b.rom_path), "rom path '%s' vs '%s'", a.rom_path, b.rom_path);
+
+    // Truncated buffer: snprintf-style, NUL-terminated, same reported size
+    char small[16];
+    CHECK(settings_serialize(&a, small, sizeof(small)) == need && small[15] == 0, "truncated serialize");
+}
+
+static void test_partial_and_invalid(void) {
+    settings_t s;
+    settings_default(&s);
+    const settings_t def = s;
+    CHECK(parse(&s, "[video]\ncrop_border = true\n"), "partial: %s", err);
+    CHECK(s.video.crop_border && s.video.window_scale == def.video.window_scale, "partial override");
+    CHECK(!memcmp(&s.input, &def.input, sizeof(s.input)), "partial changed input");
+
+    settings_default(&s);
+    CHECK(parse(&s,
+        "[video]\nscale = 99\nfullscreen = \"yes\"\nfilter = \"blurry\"\n"
+        "[audio]\nvolume = 2.5\nlatency_ms = 5\n"
+        "[input]\nfire = [\"Space\", \"Gamepad_A\", \"LCtrl\", \"X\"]\njoystick_port = 3\nup = 7\nmenu = \"NoSuchKey\"\n"
+        "[unknown]\nfoo = 1\n"), "invalid values must not be a parse error: %s", err);
+    CHECK(s.video.window_scale == def.video.window_scale, "scale 99 accepted");
+    CHECK(s.video.fullscreen == def.video.fullscreen, "fullscreen string accepted");
+    CHECK(s.audio.volume == def.audio.volume && s.audio.latency_ms == def.audio.latency_ms, "bad audio accepted");
+    CHECK(s.input.joystick_port == 2, "joystick_port 3 accepted");
+    CHECK(s.input.keys[INPUT_FIRE][0] == input_key_from_name("Space") &&
+          s.input.keys[INPUT_FIRE][1] == input_key_from_name("LCtrl"), "fire keys: unknown not skipped / max not honoured");
+    CHECK(s.input.keys[INPUT_UP][0] == def.input.keys[INPUT_UP][0], "non-string 'up' accepted");
+    CHECK(s.input.menu_key == def.input.menu_key, "unknown menu key replaced the menu key");
+    CHECK(strstr(warns, "scale") && strstr(warns, "Gamepad_A") && strstr(warns, "\"X\" ignored") &&
+          strstr(warns, "menu"), "missing warnings:\n%s", warns);
+
+    // Syntax error: settings untouched
+    settings_default(&s);
+    s.video.window_scale = 7;
+    CHECK(!parse(&s, "[video\nscale = 2\n"), "syntax error accepted");
+    CHECK(s.video.window_scale == 7 && err[0], "settings changed on syntax error");
+
+    // Empty fire list unbinds
+    settings_default(&s);
+    CHECK(parse(&s, "[input]\nfire = []\n") && s.input.keys[INPUT_FIRE][0] == 0 && s.input.keys[INPUT_FIRE][1] == 0,
+          "empty list should unbind");
+}
+
+static void test_files(void) {
+    // Writes into the test's working directory (the build dir under ctest).
+    const char* path = "test_settings_tmp/nested/dir/settings.toml";
+    settings_t a, b;
+    settings_default(&a);
+    strcpy(a.rom_path, "/tmp/some game.crt");
+    a.video.crop_border = true;
+    CHECK(settings_save_file(&a, path, err, sizeof(err)), "save: %s", err);
+    CHECK(platform_file_exists(path), "saved file missing");
+    // overwrite (exercises atomic replace of an existing file)
+    a.video.window_scale = 4;
+    CHECK(settings_save_file(&a, path, err, sizeof(err)), "re-save: %s", err);
+    bool missing = true;
+    settings_default(&b);
+    CHECK(settings_load_file(&b, path, &missing, err, sizeof(err), warns, sizeof(warns)) && !missing, "load: %s", err);
+    CHECK(b.video.window_scale == 4 && b.video.crop_border && !strcmp(b.rom_path, a.rom_path), "loaded values");
+    CHECK(!settings_load_file(&b, "test_settings_tmp/none.toml", &missing, err, sizeof(err), NULL, 0) && missing,
+          "missing file not reported");
+    remove(path);
+
+    char p[1024];
+    CHECK(platform_settings_path("example-game", p, sizeof(p)) && strstr(p, "example-game") && strstr(p, "settings.toml"), "settings path '%s'", p);
+    CHECK(!platform_settings_path("", p, sizeof(p)), "empty game id accepted");
+}
+
+int main(void) {
+    test_keynames();
+    test_roundtrip();
+    test_partial_and_invalid();
+    test_files();
+    if (failures == 0) printf("test_settings: all passed\n");
+    return failures ? 1 : 0;
+}

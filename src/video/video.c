@@ -6,6 +6,7 @@
 #include "sokol_log.h"
 #include "sokol_gl.h"
 
+#include <math.h>
 #include <stdint.h>
 
 // Framebuffer upper bound (PAL VIC-II: 504 x 312). Checked at draw time.
@@ -26,7 +27,9 @@ static const uint32_t palette_colodore[16] = {
 static struct {
     sg_image img;
     sg_view view;
-    sg_sampler smp;
+    sg_sampler smp_nearest;
+    sg_sampler smp_linear;
+    video_settings_t settings;
     uint32_t rgba[VIDEO_MAX_W * VIDEO_MAX_H];
 } vs;
 
@@ -44,12 +47,17 @@ void video_init(void) {
         .label = "c64-framebuffer",
     });
     vs.view = sg_make_view(&(sg_view_desc){ .texture.image = vs.img });
-    vs.smp = sg_make_sampler(&(sg_sampler_desc){
-        .min_filter = SG_FILTER_NEAREST,
-        .mag_filter = SG_FILTER_NEAREST,
-        .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
-        .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+    vs.smp_nearest = sg_make_sampler(&(sg_sampler_desc){
+        .min_filter = SG_FILTER_NEAREST, .mag_filter = SG_FILTER_NEAREST,
+        .wrap_u = SG_WRAP_CLAMP_TO_EDGE, .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
     });
+    vs.smp_linear = sg_make_sampler(&(sg_sampler_desc){
+        .min_filter = SG_FILTER_LINEAR, .mag_filter = SG_FILTER_LINEAR,
+        .wrap_u = SG_WRAP_CLAMP_TO_EDGE, .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+    });
+    settings_t def;
+    settings_default(&def);
+    vs.settings = def.video;
 }
 
 void video_shutdown(void) {
@@ -57,53 +65,76 @@ void video_shutdown(void) {
     sg_shutdown();
 }
 
-void video_window_size(int screen_w, int screen_h, int scale, int* out_w, int* out_h) {
-    *out_w = screen_w * scale;
-    *out_h = screen_h * scale;
+void video_set_settings(const video_settings_t* s) {
+    vs.settings = *s;
 }
 
-void video_draw(const core_video_t* fb) {
-    const int sw = fb->screen_w, sh = fb->screen_h;
-    const bool fb_ok = fb->pixels && fb->width <= VIDEO_MAX_W && fb->height <= VIDEO_MAX_H &&
-                       sw > 0 && sh > 0;
-    if (fb_ok) {
-        // Convert only the visible rect, packed at the texture origin.
-        for (int y = 0; y < sh; y++) {
-            const uint8_t* src = fb->pixels + (size_t)(fb->screen_y + y) * fb->width + fb->screen_x;
-            uint32_t* dst = vs.rgba + (size_t)y * VIDEO_MAX_W;
-            for (int x = 0; x < sw; x++) {
-                dst[x] = palette_colodore[src[x] & 15];
-            }
-        }
-        sg_write_image_transient(&(sg_write_image_desc){
-            .src.data = { .ptr = vs.rgba, .size = sizeof(vs.rgba) },
-            .dst.image = vs.img,
-        });
+// Source rectangle inside the framebuffer according to the crop setting.
+static void source_rect(const core_video_t* fb, bool crop, int* x, int* y, int* w, int* h) {
+    if (crop) {
+        *x = fb->display_x; *y = fb->display_y; *w = fb->display_w; *h = fb->display_h;
+    } else {
+        *x = fb->screen_x; *y = fb->screen_y; *w = fb->screen_w; *h = fb->screen_h;
     }
+}
 
+void video_window_size(const core_video_t* fb, const video_settings_t* s, int* out_w, int* out_h) {
+    int x, y, w, h;
+    source_rect(fb, s->crop_border, &x, &y, &w, &h);
+    const float aspect = s->aspect_correction ? fb->pixel_aspect : 1.0f;
+    *out_w = (int)lroundf((float)w * aspect * (float)s->window_scale);
+    *out_h = h * s->window_scale;
+}
+
+void video_draw(const core_video_t* fb, bool dim) {
     const float win_w = sapp_widthf(), win_h = sapp_heightf();
     sgl_defaults();
     sgl_matrix_mode_projection();
     sgl_ortho(0.0f, win_w, win_h, 0.0f, -1.0f, 1.0f);
-    if (fb_ok) {
-        // Integer scale that fits, falling back to fractional if the window is tiny.
-        float scale = (float)((int)(win_w / sw) < (int)(win_h / sh) ? (int)(win_w / sw) : (int)(win_h / sh));
-        if (scale < 1.0f) {
-            scale = (win_w / sw) < (win_h / sh) ? (win_w / sw) : (win_h / sh);
-        }
-        const float w = sw * scale, h = sh * scale;
-        const float x0 = (win_w - w) * 0.5f, y0 = (win_h - h) * 0.5f;
-        const float u1 = (float)sw / VIDEO_MAX_W, v1 = (float)sh / VIDEO_MAX_H;
-        sgl_enable_texture();
-        sgl_texture(vs.view, vs.smp);
-        sgl_begin_quads();
-        sgl_v2f_t2f(x0,     y0,     0.0f, 0.0f);
-        sgl_v2f_t2f(x0 + w, y0,     u1,   0.0f);
-        sgl_v2f_t2f(x0 + w, y0 + h, u1,   v1);
-        sgl_v2f_t2f(x0,     y0 + h, 0.0f, v1);
-        sgl_end();
+    if (!fb || !fb->pixels || fb->width > VIDEO_MAX_W || fb->height > VIDEO_MAX_H) {
+        return;
     }
+    int sx, sy, sw, sh;
+    source_rect(fb, vs.settings.crop_border, &sx, &sy, &sw, &sh);
+    if (sw <= 0 || sh <= 0 || sx < 0 || sy < 0 || sx + sw > fb->width || sy + sh > fb->height) {
+        return;
+    }
+    // Convert only the source rect, packed at the texture origin.
+    for (int y = 0; y < sh; y++) {
+        const uint8_t* src = fb->pixels + (size_t)(sy + y) * fb->width + sx;
+        uint32_t* dst = vs.rgba + (size_t)y * VIDEO_MAX_W;
+        for (int x = 0; x < sw; x++) {
+            dst[x] = palette_colodore[src[x] & 15];
+        }
+    }
+    sg_write_image_transient(&(sg_write_image_desc){
+        .src.data = { .ptr = vs.rgba, .size = sizeof(vs.rgba) },
+        .dst.image = vs.img,
+    });
 
+    // Target size: aspect-corrected source, scaled to fit the window.
+    const float aspect = vs.settings.aspect_correction ? fb->pixel_aspect : 1.0f;
+    const float base_w = (float)sw * aspect, base_h = (float)sh;
+    float scale = fminf(win_w / base_w, win_h / base_h);
+    if (vs.settings.integer_scaling && scale >= 1.0f) {
+        scale = floorf(scale);
+    }
+    const float w = roundf(base_w * scale), h = roundf(base_h * scale);
+    const float x0 = floorf((win_w - w) * 0.5f), y0 = floorf((win_h - h) * 0.5f);
+    const float u1 = (float)sw / VIDEO_MAX_W, v1 = (float)sh / VIDEO_MAX_H;
+    const float c = dim ? 0.35f : 1.0f;
+
+    sgl_enable_texture();
+    sgl_texture(vs.view, vs.settings.filter == VIDEO_FILTER_LINEAR ? vs.smp_linear : vs.smp_nearest);
+    sgl_begin_quads();
+    sgl_v2f_t2f_c3f(x0,     y0,     0.0f, 0.0f, c, c, c);
+    sgl_v2f_t2f_c3f(x0 + w, y0,     u1,   0.0f, c, c, c);
+    sgl_v2f_t2f_c3f(x0 + w, y0 + h, u1,   v1,   c, c, c);
+    sgl_v2f_t2f_c3f(x0,     y0 + h, 0.0f, v1,   c, c, c);
+    sgl_end();
+}
+
+void video_present(void (*overlay)(void)) {
     sg_begin_pass(&(sg_pass){
         .action = {
             .colors[0] = { .load_action = SG_LOADACTION_CLEAR, .clear_value = { 0.0f, 0.0f, 0.0f, 1.0f } },
@@ -111,6 +142,9 @@ void video_draw(const core_video_t* fb) {
         .swapchain = sglue_swapchain(),
     });
     sgl_draw();
+    if (overlay) {
+        overlay();
+    }
     sg_end_pass();
     sg_commit();
 }

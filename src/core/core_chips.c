@@ -26,6 +26,11 @@
 
 // PAL: 63 cycles per line * 312 lines
 #define CORE_PAL_CYCLES_PER_FRAME (M6569_HTOTAL * M6569_VTOTAL)
+// 320x200 display window relative to the visible screen rect (measured; see test_core)
+#define CORE_PAL_DISPLAY_X 32
+#define CORE_PAL_DISPLAY_Y 36
+// PAL C64 pixel aspect ratio (7.882 MHz dot clock vs. PAL square-pixel 7.375 MHz)
+#define CORE_PAL_PIXEL_ASPECT 0.9365f
 
 struct core {
     c64_t sys;
@@ -122,6 +127,11 @@ core_video_t core_video(const core_t* core) {
         .screen_y = info.screen.y,
         .screen_w = info.screen.width,
         .screen_h = info.screen.height,
+        .display_x = info.screen.x + CORE_PAL_DISPLAY_X,
+        .display_y = info.screen.y + CORE_PAL_DISPLAY_Y,
+        .display_w = 320,
+        .display_h = 200,
+        .pixel_aspect = CORE_PAL_PIXEL_ASPECT,
     };
 }
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(breadbin-6502 VERSION 0.1.0 LANGUAGES C)
+project(breadbin-6502 VERSION 0.1.0 LANGUAGES C CXX)
 
 if(APPLE)
     enable_language(OBJC)
@@ -8,6 +8,9 @@ endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)          # UI layer only
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
@@ -30,6 +33,28 @@ target_include_directories(bb_external_chips SYSTEM INTERFACE external/chips)
 add_library(bb_external_sokol INTERFACE)
 target_include_directories(bb_external_sokol SYSTEM INTERFACE external/sokol external/sokol/util)
 
+# tomlc17 (MIT): compiled with its own (relaxed) flags
+add_library(bb_external_toml STATIC external/tomlc17/tomlc17.c)
+target_include_directories(bb_external_toml SYSTEM PUBLIC external/tomlc17)
+set_target_properties(bb_external_toml PROPERTIES C_EXTENSIONS ON)
+
+# Dear ImGui (MIT), UI only
+add_library(bb_external_imgui STATIC
+    external/imgui/imgui.cpp external/imgui/imgui_draw.cpp
+    external/imgui/imgui_tables.cpp external/imgui/imgui_widgets.cpp)
+target_include_directories(bb_external_imgui SYSTEM PUBLIC external/imgui)
+
+# nativefiledialog-extended (zlib). Linux/BSD: xdg-desktop-portal over D-Bus (no GTK).
+set(BB_HAVE_NFD OFF)
+if(NOT EMSCRIPTEN)
+    set(NFD_PORTAL ON CACHE BOOL "" FORCE)
+    set(NFD_WAYLAND OFF CACHE BOOL "" FORCE)    # sokol_app uses X11 (XWayland on Wayland)
+    set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(external/nfd EXCLUDE_FROM_ALL)
+    set(BB_HAVE_NFD ON)
+endif()
+
 # ---- embedded default system ROMs (MEGA65 Open ROMs) -----------------------
 set(BB_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${BB_GEN_DIR})
@@ -45,12 +70,15 @@ add_library(bb_core STATIC
     src/rom/sha1.c
     src/rom/rom_file.c
     src/platform/paths.c
+    src/settings/settings.c
+    src/input/keynames.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
     ${BB_GEN_DIR}/openroms_chargen.c
 )
 target_include_directories(bb_core PUBLIC src)
-target_link_libraries(bb_core PRIVATE bb_external_chips)
+target_link_libraries(bb_core PRIVATE bb_external_chips bb_external_sokol)
+target_link_libraries(bb_core PUBLIC bb_external_toml)
 target_compile_options(bb_core PRIVATE ${BB_WARNINGS})
 if(NOT MSVC)
     target_link_libraries(bb_core PUBLIC m)
@@ -67,9 +95,15 @@ add_executable(breadbin-6502 WIN32
     src/video/video.c
     src/audio/audio.c
     src/input/input.c
+    src/ui/ui.cpp
+    src/platform/filedialog.c
     ${BB_SOKOL_IMPL}
 )
-target_link_libraries(breadbin-6502 PRIVATE bb_core bb_external_sokol)
+target_link_libraries(breadbin-6502 PRIVATE bb_core bb_external_sokol bb_external_imgui)
+if(BB_HAVE_NFD)
+    target_link_libraries(breadbin-6502 PRIVATE nfd)
+    target_compile_definitions(breadbin-6502 PRIVATE BB_HAVE_NFD)
+endif()
 target_compile_options(breadbin-6502 PRIVATE ${BB_WARNINGS})
 target_compile_definitions(breadbin-6502 PRIVATE BB_VERSION="${PROJECT_VERSION}")
 
@@ -117,6 +151,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_cart_boot PRIVATE bb_core)
     target_compile_options(test_cart_boot PRIVATE ${BB_WARNINGS})
     add_test(NAME cart_boot COMMAND test_cart_boot)
+
+    add_executable(test_settings tests/test_settings.c)
+    target_link_libraries(test_settings PRIVATE bb_core)
+    target_compile_options(test_settings PRIVATE ${BB_WARNINGS})
+    add_test(NAME settings COMMAND test_settings)
 
     add_executable(test_sha1 tests/test_sha1.c)
     target_link_libraries(test_sha1 PRIVATE bb_core)

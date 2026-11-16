@@ -1,4 +1,5 @@
 #include "input/input.h"
+#include "input/keynames.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -10,18 +11,39 @@ typedef struct {
     int key;    // CORE_KEY_* / ASCII
 } key_event_t;
 
+static const uint8_t action_bits[INPUT_ACTION_COUNT] = {
+    [INPUT_UP] = CORE_JOY_UP, [INPUT_DOWN] = CORE_JOY_DOWN, [INPUT_LEFT] = CORE_JOY_LEFT,
+    [INPUT_RIGHT] = CORE_JOY_RIGHT, [INPUT_FIRE] = CORE_JOY_FIRE,
+};
+
 static struct {
-    int joy_port;
-    uint8_t joy_mask;
+    input_settings_t cfg;
+    uint8_t bound_mask[INPUT_MAX_KEYCODE];   // joystick bits per host key (0 = not bound)
+    bool host_held[INPUT_MAX_KEYCODE];       // bound host keys currently held
+    uint8_t tapped;                          // joystick bits pressed since the last frame (short taps)
     key_event_t queue[INPUT_QUEUE_SIZE];
     int queue_len;
     bool release_all;
-    bool keys_down[256];    // C64 keys currently held via KEY_DOWN events
+    bool c64_down[256];                      // C64 keys currently held via KEY_DOWN
+    bool suppress_char;                      // drop the CHAR event of a bound key
 } is;
 
-void input_init(int joystick_port) {
+void input_set_config(const input_settings_t* cfg) {
+    input_release_all();
+    is.cfg = *cfg;
+    if (is.cfg.joystick_port != 1) is.cfg.joystick_port = 2;
+    memset(is.bound_mask, 0, sizeof(is.bound_mask));
+    for (int a = 0; a < INPUT_ACTION_COUNT; a++) {
+        for (int b = 0; b < INPUT_MAX_BINDS; b++) {
+            const int k = cfg->keys[a][b];
+            if (k > 0 && k < INPUT_MAX_KEYCODE) is.bound_mask[k] |= action_bits[a];
+        }
+    }
+}
+
+void input_init(const input_settings_t* cfg) {
     memset(&is, 0, sizeof(is));
-    is.joy_port = (joystick_port == 1) ? 1 : 2;
+    input_set_config(cfg);
 }
 
 static void enqueue(bool down, int key) {
@@ -59,21 +81,13 @@ static int map_special_key(sapp_keycode k) {
     }
 }
 
-static uint8_t map_joy_key(sapp_keycode k) {
-    switch (k) {
-        case SAPP_KEYCODE_KP_8:          return CORE_JOY_UP;
-        case SAPP_KEYCODE_KP_2:          return CORE_JOY_DOWN;
-        case SAPP_KEYCODE_KP_4:          return CORE_JOY_LEFT;
-        case SAPP_KEYCODE_KP_6:          return CORE_JOY_RIGHT;
-        case SAPP_KEYCODE_KP_0:
-        case SAPP_KEYCODE_RIGHT_CONTROL: return CORE_JOY_FIRE;
-        default:                         return 0;
-    }
-}
-
 void input_handle_event(const sapp_event* ev) {
     switch (ev->type) {
         case SAPP_EVENTTYPE_CHAR: {
+            if (is.suppress_char) {
+                is.suppress_char = false;
+                break;
+            }
             uint32_t c = ev->char_code;
             if (c > 0x20 && c < 0x7F) {
                 // Host lowercase = C64 unshifted (chips uses 'A'..'Z' for that), and vice versa.
@@ -88,18 +102,20 @@ void input_handle_event(const sapp_event* ev) {
         case SAPP_EVENTTYPE_KEY_DOWN:
         case SAPP_EVENTTYPE_KEY_UP: {
             const bool down = ev->type == SAPP_EVENTTYPE_KEY_DOWN;
-            const uint8_t jm = map_joy_key(ev->key_code);
-            if (jm) {
-                is.joy_mask = down ? (is.joy_mask | jm) : (is.joy_mask & (uint8_t)~jm);
+            const int code = (int)ev->key_code;
+            is.suppress_char = false;
+            if (code > 0 && code < INPUT_MAX_KEYCODE && is.bound_mask[code]) {
+                is.host_held[code] = down;
+                if (down) is.tapped |= is.bound_mask[code];
+                is.suppress_char = down;    // a bound letter key must not also type
                 break;
             }
             const int k = map_special_key(ev->key_code);
             if (k) {
-                if (down && ev->key_repeat && is.keys_down[k]) {
-                    // Auto-repeat: let the C64 KERNAL handle repeat itself.
-                    break;
+                if (down && ev->key_repeat && is.c64_down[k]) {
+                    break;      // auto-repeat: the C64 KERNAL handles repeat itself
                 }
-                is.keys_down[k] = down;
+                is.c64_down[k] = down;
                 enqueue(down, k);
             }
             break;
@@ -115,15 +131,18 @@ void input_handle_event(const sapp_event* ev) {
 
 void input_release_all(void) {
     is.release_all = true;
-    is.joy_mask = 0;
+    is.queue_len = 0;
+    is.suppress_char = false;
+    memset(is.host_held, 0, sizeof(is.host_held));
+    is.tapped = 0;
 }
 
 void input_apply(core_t* core) {
     if (is.release_all) {
         for (int k = 0; k < 256; k++) {
-            if (is.keys_down[k]) {
+            if (is.c64_down[k]) {
                 core_key_up(core, k);
-                is.keys_down[k] = false;
+                is.c64_down[k] = false;
             }
         }
         is.release_all = false;
@@ -133,6 +152,12 @@ void input_apply(core_t* core) {
         else                  core_key_up(core, is.queue[i].key);
     }
     is.queue_len = 0;
-    core_set_joystick(core, is.joy_port, is.joy_mask);
-    core_set_joystick(core, is.joy_port == 1 ? 2 : 1, 0);
+    // a press that was released before this frame still counts for one frame
+    uint8_t joy = is.tapped;
+    is.tapped = 0;
+    for (int k = 1; k < INPUT_MAX_KEYCODE; k++) {
+        if (is.host_held[k]) joy |= is.bound_mask[k];
+    }
+    core_set_joystick(core, is.cfg.joystick_port, joy);
+    core_set_joystick(core, is.cfg.joystick_port == 1 ? 2 : 1, 0);
 }

@@ -161,6 +161,30 @@ static void test_border_color(void) {
     const uint8_t after = v.pixels[(size_t)v.screen_y * v.width + v.screen_x] & 15;
     printf("test_core: boot border color %u, after POKE %u\n", before, after);
     CHECK(after == 1, "border pixel is color %u after setting $D020=1", after);
+
+    // The reported display window must be exactly where the background shows:
+    // clear the screen to spaces and set background black, border stays white.
+    for (int a = 0x0400; a < 0x07E8; a++) core_ram_write(c, (uint16_t)a, 32);
+    static const uint8_t bg_black[] = { 0xA9, 0x00, 0x8D, 0x21, 0xD0, 0x60 };
+    for (unsigned i = 0; i < sizeof(bg_black); i++) core_ram_write(c, (uint16_t)(0xC000 + i), bg_black[i]);
+    type(c, "sys 49152\n");
+    for (int a = 0x0400; a < 0x07E8; a++) core_ram_write(c, (uint16_t)a, 32);
+    run(c, 3);
+    v = core_video(c);
+    int x0 = 9999, y0 = 9999, x1 = -1, y1 = -1;
+    for (int y = v.screen_y; y < v.screen_y + v.screen_h; y++) {
+        for (int x = v.screen_x; x < v.screen_x + v.screen_w; x++) {
+            if ((v.pixels[(size_t)y * v.width + x] & 15) == 0) {
+                if (x < x0) x0 = x;
+                if (y < y0) y0 = y;
+                if (x > x1) x1 = x;
+                if (y > y1) y1 = y;
+            }
+        }
+    }
+    CHECK(x0 == v.display_x && y0 == v.display_y && x1 - x0 + 1 == v.display_w && y1 - y0 + 1 == v.display_h,
+          "display window reported %d,%d %dx%d, measured %d,%d %dx%d",
+          v.display_x, v.display_y, v.display_w, v.display_h, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
     core_destroy(c);
 }
 

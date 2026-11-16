@@ -2,11 +2,26 @@
 // Framebuffer -> texture -> window. Palette lookup happens here, on the copy
 // sent to the screen only; emulated state is never touched.
 #include "core/core.h"
+#include "settings/settings.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 void video_init(void);
 void video_shutdown(void);
-// Convert the core framebuffer with the current palette and draw it
-// letterboxed with integer scaling into the current window.
-void video_draw(const core_video_t* fb);
-// Suggested initial window size for the given visible area and scale.
-void video_window_size(int screen_w, int screen_h, int scale, int* out_w, int* out_h);
+void video_set_settings(const video_settings_t* vs);
+
+// Record the emulator picture for this frame. fb may be NULL (nothing drawn).
+// dim darkens the picture (used behind the menu).
+void video_draw(const core_video_t* fb, bool dim);
+
+// Run the frame's render pass: the picture, then overlay() (e.g. the UI), then present.
+void video_present(void (*overlay)(void));
+
+// Window size for the given picture and settings (window_scale, crop, aspect).
+void video_window_size(const core_video_t* fb, const video_settings_t* vs, int* out_w, int* out_h);
+
+#ifdef __cplusplus
+}
+#endif
