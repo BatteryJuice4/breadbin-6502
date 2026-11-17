@@ -3,6 +3,8 @@
 #include "platform/paths.h"
 
 #include "settings/toml_util.h"
+#include "mods/mod.h"
+#include "video/palettes.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,6 +17,10 @@ const char* settings_action_key(input_action_t a) {
     return (a >= 0 && a < INPUT_ACTION_COUNT) ? action_keys[a] : "?";
 }
 
+static bool mod_id_ok(const char* id) {
+    return strlen(id) < SETTINGS_MOD_ID_MAX && mod_id_valid(id);
+}
+
 void settings_default(settings_t* s) {
     memset(s, 0, sizeof(*s));
     s->video = (video_settings_t){
@@ -24,6 +30,7 @@ void settings_default(settings_t* s) {
         .aspect_correction = true,
         .crop_border = false,
         .filter = VIDEO_FILTER_NEAREST,
+        .palette = PALETTE_DEFAULT,
     };
     s->audio = (audio_settings_t){ .volume = 0.8f, .mute = false, .latency_ms = 50 };
     // Generic defaults: keypad joystick, so the cursor keys stay C64 cursor keys
@@ -79,6 +86,11 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         } else if (f.type != TOML_UNKNOWN) {
             tu_warn(&w, "[video] filter: expected a string");
         }
+        char pal[sizeof(t.video.palette)] = { 0 };     // zero tail: settings compare with memcmp
+        if (tu_get_string(v, "palette", pal, sizeof(pal), &w, "video")) {
+            if (palette_id_valid(pal)) memcpy(t.video.palette, pal, sizeof(pal));
+            else tu_warn(&w, "[video] palette: unknown palette \"%s\"", pal);
+        }
     }
 
     toml_datum_t a = toml_get(r.toptab, "audio");
@@ -98,6 +110,27 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         tu_get_keys(in, "menu", menu, 1, &w, "input");
         if (menu[0]) t.input.menu_key = menu[0];
         else if (toml_get(in, "menu").type != TOML_UNKNOWN) tu_warn(&w, "[input] menu: a menu key is required, keeping the old one");
+    }
+
+    toml_datum_t mods = toml_get(r.toptab, "mods");
+    if (mods.type == TOML_TABLE) {
+        toml_datum_t en = toml_get(mods, "enabled");
+        if (en.type == TOML_ARRAY) {
+            t.mods_enabled_count = 0;
+            for (int i = 0; i < en.u.arr.size; i++) {
+                toml_datum_t e = en.u.arr.elem[i];
+                if (e.type != TOML_STRING || !mod_id_ok(e.u.s)) {
+                    tu_warn(&w, "[mods] enabled: entry %d isn't a mod id", i + 1);
+                } else if (t.mods_enabled_count >= SETTINGS_MAX_MODS) {
+                    tu_warn(&w, "[mods] enabled: more than %d mods, extra ignored", SETTINGS_MAX_MODS);
+                    break;
+                } else {
+                    snprintf(t.mods_enabled[t.mods_enabled_count++], SETTINGS_MOD_ID_MAX, "%s", e.u.s);
+                }
+            }
+        } else if (en.type != TOML_UNKNOWN) {
+            tu_warn(&w, "[mods] enabled: expected a list of mod ids");
+        }
     }
 
     toml_free(r);
@@ -160,6 +193,9 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "aspect_correction = %s\n", s->video.aspect_correction ? "true" : "false");
     put(&o, "crop_border = %s\n", s->video.crop_border ? "true" : "false");
     put(&o, "filter = \"%s\"\n", s->video.filter == VIDEO_FILTER_LINEAR ? "smooth" : "nearest");
+    put(&o, "palette = ");
+    put_string(&o, s->video.palette);
+    put(&o, "\n");
     put(&o, "\n[audio]\n");
     put(&o, "volume = %.2f\n", (double)s->audio.volume);
     put(&o, "mute = %s\n", s->audio.mute ? "true" : "false");
@@ -171,7 +207,12 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     }
     put(&o, "menu = ");
     put_string(&o, input_key_name(s->input.menu_key) ? input_key_name(s->input.menu_key) : "Escape");
-    put(&o, "\n");
+    put(&o, "\n\n[mods]\n# enabled mods, in load order\nenabled = [");
+    for (int i = 0; i < s->mods_enabled_count; i++) {
+        put(&o, i ? ", " : "");
+        put_string(&o, s->mods_enabled[i]);
+    }
+    put(&o, "]\n");
     return o.len;
 }
 

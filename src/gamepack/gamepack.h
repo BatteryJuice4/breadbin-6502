@@ -51,7 +51,7 @@ typedef struct {
     int load_done_pc;               // loading is over when this PC runs; -1 = not set
     int load_done_frames;           // ... or after this many frames; 0 = not set
     // [video] (display only)
-    char palette[32];
+    char palette[72];               // palette id; also the default for settings
     int extended_view_max_width;    // 0 = unsupported
 } gamepack_t;
 

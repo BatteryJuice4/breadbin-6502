@@ -19,6 +19,10 @@ typedef enum {
 filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out, size_t out_size,
                                              char* err, size_t err_size);
 
+// Filters on .c64mod packages.
+filedialog_result_t platform_open_mod_dialog(const char* default_dir, char* out, size_t out_size,
+                                             char* err, size_t err_size);
+
 // False when the native dialog is compiled out or disabled (BREADBIN_NO_NATIVE_DIALOG=1).
 bool platform_native_dialog_available(void);
 

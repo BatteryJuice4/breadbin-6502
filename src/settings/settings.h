@@ -15,6 +15,8 @@ extern "C" {
 #endif
 
 #define SETTINGS_PATH_MAX 1024
+#define SETTINGS_MAX_MODS 64
+#define SETTINGS_MOD_ID_MAX 64
 
 typedef enum {
     VIDEO_FILTER_NEAREST = 0,
@@ -28,6 +30,7 @@ typedef struct {
     bool aspect_correction;     // use the C64's non-square pixel aspect
     bool crop_border;           // show only the 320x200 display window
     video_filter_t filter;
+    char palette[72];           // palette id (see video/palettes.h)
 } video_settings_t;
 
 typedef struct {
@@ -58,6 +61,8 @@ typedef struct {
     video_settings_t video;
     audio_settings_t audio;
     input_settings_t input;
+    int mods_enabled_count;                         // enabled mods, in load order
+    char mods_enabled[SETTINGS_MAX_MODS][SETTINGS_MOD_ID_MAX];
 } settings_t;
 
 void settings_default(settings_t* s);

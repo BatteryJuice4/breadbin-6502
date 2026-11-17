@@ -1,5 +1,6 @@
 #include "gamepack/gamepack.h"
 #include "settings/toml_util.h"
+#include "video/palettes.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -264,7 +265,10 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
             else if (!strcmp(buf, "smooth")) d.video.filter = VIDEO_FILTER_LINEAR;
             else tu_warn(&w, "[video] filter: expected \"nearest\" or \"smooth\"");
         }
-        tu_get_string(v, "palette", p.palette, sizeof(p.palette), &w, "video");
+        if (tu_get_string(v, "palette", p.palette, sizeof(p.palette), &w, "video")) {
+            if (palette_id_valid(p.palette)) snprintf(d.video.palette, sizeof(d.video.palette), "%s", p.palette);
+            else tu_warn(&w, "[video] palette: unknown palette \"%s\" (built in: colodore, pepto; or \"mod:<id>\")", p.palette);
+        }
         tu_get_int(v, "extended_view_max_width", 0, 1024, &p.extended_view_max_width, &w, "video");
     }
 

@@ -74,6 +74,12 @@ int modset_find(const modset_t* s, const char* id);
 // marked failed (with the reason in status) and skipped. Returns how many applied.
 int modset_apply_patches(modset_t* s, uint8_t* buf, size_t size);
 bool modset_has_patches(const modset_t* s);     // any usable patch mod
+// Mark every usable patch mod as failed with reason (e.g. the media can't be patched).
+void modset_fail_patches(modset_t* s, const char* reason);
+// Forget load-time failures (call before loading a game again, then evaluate).
+void modset_clear_failures(modset_t* s);
+// Ids of the usable patch mods in load order, joined (to notice when a reload is needed).
+void modset_patch_signature(const modset_t* s, char* out, size_t out_size);
 // Cheats: call before every frame once loading is over; first = the first such frame.
 void modset_apply_cheats(const modset_t* s, core_t* core, bool first);
 

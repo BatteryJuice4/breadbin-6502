@@ -3,9 +3,10 @@
 // Disk and tape games first load at warp speed (no picture, no sound, no input)
 // until autostart says loading is over; then the normal frame loop takes over.
 //
-// Frame loop: poll input -> (mod hooks, later) -> run one C64 frame ->
+// Frame loop: poll input -> cheat mods -> run one C64 frame ->
 // (post-frame hooks, later) -> upload video -> audio is pushed from inside the
-// emulation -> UI overlay.
+// emulation -> UI overlay. Patch mods change the game data in memory when it's
+// loaded (never the file); palette mods only change the displayed colours.
 //
 // Wall-clock time decides only *when* the next emulated frame runs; each frame
 // always executes the same fixed number of CPU cycles, so emulation stays
@@ -17,6 +18,7 @@
 #include "media/autostart.h"
 #include "media/media.h"
 #include "media/tap.h"
+#include "mods/modset.h"
 #include "platform/filedialog.h"
 #include "platform/paths.h"
 #include "rom/rom_file.h"
@@ -24,6 +26,7 @@
 #include "settings/settings.h"
 #include "ui/ui.h"
 #include "video/image.h"
+#include "video/palettes.h"
 #include "video/video.h"
 
 #include "sokol_app.h"
@@ -72,6 +75,11 @@ static struct {
     bool settings_dirty;
     bool settings_corrupt;              // keep a backup before the first save
     ui_state_t ui;
+    modset_t mods;
+    char mods_dir[SETTINGS_PATH_MAX];       // installed mods ("" = no config dir)
+    char mods_bundled[SETTINGS_PATH_MAX];   // the folder game pack's mods/ ("" = none)
+    char patch_sig[2048];                   // patch mods applied to the loaded game
+    bool cheats_first;                      // next played frame is the first since load/reset/change
     double frame_period;
     double accum;
     long quit_after_frames;             // --frames N (0 = run until closed)
@@ -132,6 +140,118 @@ static void load_settings(void) {
     if (warns[0]) {
         fprintf(stderr, "breadbin-6502: settings warnings:\n%s", warns);
     }
+}
+
+// ---- mods ------------------------------------------------------------------
+
+static const char* game_id(void) {
+    return app.gp.present ? app.gp.pack.id : BB_GENERIC_ID;
+}
+
+// The palette from settings; a palette mod that isn't usable falls back to the default.
+static void apply_palette(void) {
+    const char* id = app.settings.video.palette;
+    const palette_t* p = palette_find_builtin(id);
+    if (p) {
+        video_set_palette(p->rgb);
+        return;
+    }
+    if (!strncmp(id, "mod:", 4)) {
+        const int i = modset_find(&app.mods, id + 4);
+        if (i >= 0 && app.mods.entries[i]->usable && app.mods.entries[i]->mod.type == MOD_TYPE_PALETTE) {
+            video_set_palette(app.mods.entries[i]->mod.palette);
+            return;
+        }
+    }
+    video_set_palette(palette_find_builtin(PALETTE_DEFAULT)->rgb);
+}
+
+// Enabled mods (load order) -> settings.
+static void save_mod_order(void) {
+    settings_t* s = &app.settings;
+    s->mods_enabled_count = 0;
+    for (int i = 0; i < app.mods.order_count && i < SETTINGS_MAX_MODS; i++) {
+        const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
+        snprintf(s->mods_enabled[s->mods_enabled_count++], SETTINGS_MOD_ID_MAX, "%s", e->file_id);
+    }
+    app.settings_dirty = true;
+}
+
+// Re-check every mod against the loaded game; notice when patch mods need a reload.
+static void evaluate_mods(void) {
+    modset_evaluate(&app.mods, app.ui.cart_loaded ? app.ui.rom_sha1 : "");
+    char sig[sizeof(app.patch_sig)];
+    modset_patch_signature(&app.mods, sig, sizeof(sig));
+    app.ui.mods_restart_needed = app.ui.cart_loaded && strcmp(sig, app.patch_sig) != 0;
+    apply_palette();
+    app.cheats_first = true;    // newly enabled "once" cheats apply on the next frame
+}
+
+static void scan_mods(void) {
+    modset_scan(&app.mods, app.mods_dir, app.mods_bundled);
+    evaluate_mods();
+}
+
+static void init_mods(void) {
+    modset_init(&app.mods, game_id(), BB_VERSION);
+    if (!platform_mods_dir(game_id(), app.mods_dir, sizeof(app.mods_dir))) app.mods_dir[0] = 0;
+    app.mods_bundled[0] = 0;
+    if (app.gp.present && strcmp(app.gp.source, "built in") != 0) {
+        const int n = snprintf(app.mods_bundled, sizeof(app.mods_bundled), "%.1000s%cmods", app.gp.source, platform_path_sep());
+        if (n < 0 || (size_t)n >= sizeof(app.mods_bundled)) app.mods_bundled[0] = 0;
+    }
+    modset_scan(&app.mods, app.mods_dir, app.mods_bundled);
+    modset_set_enabled(&app.mods, (const char (*)[MOD_ID_MAX])app.settings.mods_enabled, app.settings.mods_enabled_count);
+    modset_evaluate(&app.mods, "");
+    for (int i = 0; i < app.mods.order_count; i++) {
+        const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
+        fprintf(stderr, "breadbin-6502: mod \"%s\" enabled%s%s\n", e->file_id, e->status[0] ? ": " : "", e->status);
+    }
+}
+
+// Patch mods for a game about to start (data = the bytes its sha1 covers; NULL = can't be patched).
+static void patch_game(const char* sha1, uint8_t* data, size_t size, const char* why_not) {
+    modset_clear_failures(&app.mods);
+    modset_evaluate(&app.mods, sha1);
+    if (modset_has_patches(&app.mods)) {
+        if (data) {
+            const int n = modset_apply_patches(&app.mods, data, size);
+            fprintf(stderr, "breadbin-6502: %d patch mod%s applied\n", n, n == 1 ? "" : "s");
+        } else {
+            modset_fail_patches(&app.mods, why_not);
+        }
+    }
+    for (int i = 0; i < app.mods.order_count; i++) {
+        const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
+        if (e->failed) fprintf(stderr, "breadbin-6502: mod \"%s\": %s\n", e->file_id, e->status);
+    }
+    modset_patch_signature(&app.mods, app.patch_sig, sizeof(app.patch_sig));
+    app.ui.mods_restart_needed = false;
+    apply_palette();    // palette mods may be tied to a dump too
+}
+
+static void install_mod(const char* path) {
+    ui_state_t* u = &app.ui;
+    if (!app.mods_dir[0]) {
+        snprintf(u->mods_message, sizeof(u->mods_message), "There's no config folder to install mods into.");
+        u->mods_message_is_error = true;
+        return;
+    }
+    u->mods_message_is_error = !modset_install(app.mods_dir, path, game_id(), u->mods_message, sizeof(u->mods_message));
+    fprintf(stderr, "breadbin-6502: %s\n", u->mods_message);
+    if (!u->mods_message_is_error) scan_mods();
+}
+
+static void select_mod_file(void) {
+    char home[SETTINGS_PATH_MAX] = "";
+    platform_home_dir(home, sizeof(home));
+    char path[SETTINGS_PATH_MAX], err[256];
+    switch (platform_open_mod_dialog(home[0] ? home : NULL, path, sizeof(path), err, sizeof(err))) {
+        case FILEDIALOG_OK: install_mod(path); break;
+        case FILEDIALOG_CANCEL: break;
+        case FILEDIALOG_ERROR: ui_open_mod_browser(home[0] ? home : NULL); break;
+    }
+    app.accum = 0.0;
 }
 
 // ---- cartridge -------------------------------------------------------------
@@ -276,6 +396,7 @@ static void insert_cart(const cart_t* cart, const char* path, rom_status_t statu
             u->rom_name, cart_mode_name(cart->mode), cart->sha1);
     set_title(u->rom_name);
     if (remember) remember_rom(path);
+    app.cheats_first = true;
     enter_game();
 }
 
@@ -346,6 +467,9 @@ static bool load_rom(const char* path, load_mode_t mode) {
             return false;
         }
     }
+    if (img.fmt == MEDIA_FMT_D64) patch_game(img.sha1, img.data, d64_data_size(&img.d64), NULL);
+    else if (img.fmt == MEDIA_FMT_PRG) patch_game(img.sha1, img.data, img.size, NULL);
+    else patch_game(img.sha1, NULL, 0, "patch mods can't change tape images (.tap, .t64)");
     insert_media(&img, path, status, mode == LOAD_INTERACTIVE || mode == LOAD_CONFIRMED);
     return true;
 }
@@ -408,6 +532,17 @@ static bool load_cart(const char* path, load_mode_t mode) {
             return false;
         }
     }
+    {
+        static uint8_t data[0x4000 * 4];
+        const size_t n = cart_data_size(&cart);
+        if (n <= sizeof(data)) {
+            cart_data_get(&cart, data);
+            patch_game(cart.sha1, data, n, NULL);
+            cart_data_put(&cart, data);
+        } else {
+            patch_game(cart.sha1, NULL, 0, "this cartridge layout can't be patched");
+        }
+    }
     insert_cart(&cart, path, status, mode == LOAD_INTERACTIVE || mode == LOAD_CONFIRMED);
     return true;
 }
@@ -418,6 +553,9 @@ static void start_without_cart(void) {
     app.ui.cart_loaded = false;
     app.ui.rom_status = ROM_STATUS_NONE;
     app.ui.rom_path[0] = app.ui.rom_name[0] = app.ui.rom_sha1[0] = 0;
+    app.patch_sig[0] = 0;
+    modset_clear_failures(&app.mods);
+    evaluate_mods();
     set_title(NULL);
     enter_game();
 }
@@ -454,6 +592,7 @@ static void handle_ui_actions(void) {
     ui_state_t* u = &app.ui;
     if (u->act_video_changed) {
         video_set_settings(&app.settings.video);
+        apply_palette();
         if (app.settings.video.fullscreen != sapp_is_fullscreen()) sapp_toggle_fullscreen();
         app.settings_dirty = true;
     }
@@ -473,7 +612,30 @@ static void handle_ui_actions(void) {
     }
     if (u->act_reset) {
         if (app.media.fmt != MEDIA_FMT_UNKNOWN) boot_media(); else core_reset(app.core);
+        app.cheats_first = true;
         enter_game();
+    }
+    if (u->act_mods_changed) {
+        save_mod_order();
+        evaluate_mods();
+    }
+    if (u->act_mods_rescan) {
+        scan_mods();
+        u->mods_message[0] = 0;
+    }
+    if (u->act_mod_install) select_mod_file();
+    if (u->act_mod_install_path) install_mod(u->load_path);
+    if (u->act_mod_uninstall) {
+        u->mods_message_is_error = !modset_uninstall(&app.mods, u->mod_index, u->mods_message, sizeof(u->mods_message));
+        if (!u->mods_message_is_error) {
+            save_mod_order();
+            scan_mods();
+        }
+    }
+    if (u->act_mods_restart && u->cart_loaded) {
+        char path[SETTINGS_PATH_MAX];
+        snprintf(path, sizeof(path), "%s", u->rom_path);
+        load_rom(path, LOAD_CLI);   // already accepted: no prompt, nothing to remember
     }
     if (u->act_no_cart) start_without_cart();
     if (u->act_load_path) {
@@ -497,6 +659,8 @@ static void handle_ui_actions(void) {
     u->act_resume = u->act_reset = u->act_quit = u->act_select_rom = u->act_no_cart = false;
     u->act_video_changed = u->act_audio_changed = u->act_input_changed = u->act_load_path = false;
     u->act_confirm_play = u->act_confirm_cancel = u->act_swap_media = false;
+    u->act_mods_changed = u->act_mods_rescan = u->act_mod_install = u->act_mod_install_path = false;
+    u->act_mod_uninstall = u->act_mods_restart = false;
 }
 
 // ---- sokol callbacks -------------------------------------------------------
@@ -505,6 +669,7 @@ static void init_cb(void) {
     stm_setup();
     video_init();
     video_set_settings(&app.settings.video);
+    apply_palette();
     ui_init();
     if (app.banner.rgba) {
         ui_set_banner(app.banner.rgba, app.banner.width, app.banner.height);
@@ -537,6 +702,7 @@ static void frame_cb(void) {
             app.booting = false;
             app.ui.loading = false;
             app.accum = 0.0;
+            app.cheats_first = true;
             input_release_all();
             fprintf(stderr, "breadbin-6502: loaded after %.1f s of emulated time\n", app.ui.loading_seconds);
         }
@@ -546,6 +712,8 @@ static void frame_cb(void) {
         int n = 0;
         while (app.accum >= app.frame_period && n < BB_MAX_FRAMES_PER_TICK) {
             input_apply(app.core);
+            modset_apply_cheats(&app.mods, app.core, app.cheats_first);
+            app.cheats_first = false;
             core_run_frame(app.core);
             app.accum -= app.frame_period;
             n++;
@@ -605,6 +773,7 @@ static void cleanup_cb(void) {
     video_shutdown();
     image_free(&app.icon);
     gamepack_loaded_free(&app.gp);
+    modset_free(&app.mods);
 }
 
 // ---- startup ---------------------------------------------------------------
@@ -729,6 +898,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
     load_game_pack();
     load_settings();
+    init_mods();
     load_system_roms();
     check_playable();
     if (!audio_init(app.settings.audio.latency_ms)) {
@@ -752,6 +922,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
 
     ui_state_t* u = &app.ui;
     u->settings = &app.settings;
+    u->mods = &app.mods;
     u->defaults = &app.defaults;
     u->game_title = app.gp.present ? app.gp.pack.title : "Breadbin-6502";
     u->version = BB_VERSION;

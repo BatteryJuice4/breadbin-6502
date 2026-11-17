@@ -7,6 +7,7 @@
 */
 #include <stdbool.h>
 
+#include "mods/modset.h"
 #include "settings/settings.h"
 #include "sokol_app.h"
 
@@ -79,6 +80,18 @@ typedef struct {
     char confirm_text[512];
     bool act_confirm_play, act_confirm_cancel;
 
+    // mods
+    modset_t* mods;             // the app's mod set (edited in place: enable, order)
+    bool mods_restart_needed;   // patch mods changed since the game was loaded
+    char mods_message[512];
+    bool mods_message_is_error;
+    bool act_mods_changed;      // enabled set or load order changed
+    bool act_mod_install;       // "Install mod...": open the file dialog
+    bool act_mod_install_path;  // load_path chosen in the built-in browser (mods mode)
+    bool act_mod_uninstall;     // mod_index
+    int mod_index;
+    bool act_mods_rescan;
+    bool act_mods_restart;      // reload the game so patch mods apply
     // key capture for rebinding
     int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY
     int capture_slot;
@@ -96,6 +109,8 @@ void ui_flush(void);
 void ui_draw(void);
 // Open the built-in file browser (fallback for the native dialog).
 void ui_open_file_browser(const char* start_dir);
+// Same, listing .c64mod packages (result: act_mod_install_path).
+void ui_open_mod_browser(const char* start_dir);
 // Game pack banner (RGBA8), shown on the Select-ROM screen and in the ROM tab.
 // Call after ui_init(); pixels are copied.
 void ui_set_banner(const unsigned char* rgba, int width, int height);

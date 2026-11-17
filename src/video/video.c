@@ -1,4 +1,5 @@
 #include "video/video.h"
+#include "video/palettes.h"
 
 #include "sokol_app.h"
 #include "sokol_gfx.h"
@@ -13,16 +14,8 @@
 #define VIDEO_MAX_W 528
 #define VIDEO_MAX_H 320
 
-// Default palette: Colodore (colodore.com). Packed as 0xAABBGGRR for RGBA8 upload.
-// Selectable palettes come in Phase 7; this table is display-only.
-#define RGB(r, g, b) (0xFF000000u | ((uint32_t)(b) << 16) | ((uint32_t)(g) << 8) | (uint32_t)(r))
-static const uint32_t palette_colodore[16] = {
-    RGB(0x00, 0x00, 0x00), RGB(0xFF, 0xFF, 0xFF), RGB(0x81, 0x33, 0x38), RGB(0x75, 0xCE, 0xC8),
-    RGB(0x8E, 0x3C, 0x97), RGB(0x56, 0xAC, 0x4D), RGB(0x2E, 0x2C, 0x9B), RGB(0xED, 0xF1, 0x71),
-    RGB(0x8E, 0x50, 0x29), RGB(0x55, 0x38, 0x00), RGB(0xC4, 0x6C, 0x71), RGB(0x4A, 0x4A, 0x4A),
-    RGB(0x7B, 0x7B, 0x7B), RGB(0xA9, 0xFF, 0x9F), RGB(0x70, 0x6D, 0xEB), RGB(0xB2, 0xB2, 0xB2),
-};
-#undef RGB
+// Display palette, packed as 0xAABBGGRR for RGBA8 upload (see video/palettes.h).
+static uint32_t palette_rgba[16];
 
 static struct {
     sg_image img;
@@ -33,7 +26,15 @@ static struct {
     uint32_t rgba[VIDEO_MAX_W * VIDEO_MAX_H];
 } vs;
 
+void video_set_palette(const uint32_t rgb[16]) {
+    for (int i = 0; i < 16; i++) {
+        const uint32_t c = rgb[i];
+        palette_rgba[i] = 0xFF000000u | (c & 0xFF) << 16 | (c & 0xFF00) | (c >> 16 & 0xFF);
+    }
+}
+
 void video_init(void) {
+    video_set_palette(palette_find_builtin(PALETTE_DEFAULT)->rgb);
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
         .logger.func = slog_func,
@@ -104,7 +105,7 @@ void video_draw(const core_video_t* fb, bool dim) {
         const uint8_t* src = fb->pixels + (size_t)(sy + y) * fb->width + sx;
         uint32_t* dst = vs.rgba + (size_t)y * VIDEO_MAX_W;
         for (int x = 0; x < sw; x++) {
-            dst[x] = palette_colodore[src[x] & 15];
+            dst[x] = palette_rgba[src[x] & 15];
         }
     }
     sg_write_image_transient(&(sg_write_image_desc){

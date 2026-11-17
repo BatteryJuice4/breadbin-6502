@@ -17,8 +17,8 @@ bool platform_native_dialog_available(void) {
 #endif
 }
 
-filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out, size_t out_size,
-                                             char* err, size_t err_size) {
+static filedialog_result_t open_dialog(bool mods, const char* default_dir, char* out, size_t out_size,
+                                       char* err, size_t err_size) {
     if (err && err_size) err[0] = 0;
     if (!platform_native_dialog_available()) {
         if (err) snprintf(err, err_size, "native file dialog not available");
@@ -29,16 +29,19 @@ filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out,
         if (err) snprintf(err, err_size, "file dialog: %s", NFD_GetError() ? NFD_GetError() : "init failed");
         return FILEDIALOG_ERROR;
     }
-    nfdu8filteritem_t filters[] = {
+    static const nfdu8filteritem_t game_filters[] = {
         { "C64 games", "crt,bin,d64,prg,t64,tap" },
         { "Cartridges", "crt,bin" },
         { "Disks", "d64,prg" },
         { "Tapes", "tap,t64" },
     };
+    static const nfdu8filteritem_t mod_filters[] = {
+        { "Breadbin-6502 mods", "c64mod" },
+    };
     nfdu8char_t* path = NULL;
     nfdopendialogu8args_t args = { 0 };
-    args.filterList = filters;
-    args.filterCount = 4;
+    args.filterList = mods ? mod_filters : game_filters;
+    args.filterCount = mods ? 1 : 4;
     args.defaultPath = (default_dir && default_dir[0]) ? default_dir : NULL;
     nfdresult_t r = NFD_OpenDialogU8_With(&path, &args);
     filedialog_result_t res;
@@ -56,7 +59,17 @@ filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out,
     NFD_Quit();
     return res;
 #else
-    (void)default_dir; (void)out; (void)out_size;
+    (void)mods; (void)default_dir; (void)out; (void)out_size;
     return FILEDIALOG_ERROR;
 #endif
+}
+
+filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out, size_t out_size,
+                                             char* err, size_t err_size) {
+    return open_dialog(false, default_dir, out, out_size, err, err_size);
+}
+
+filedialog_result_t platform_open_mod_dialog(const char* default_dir, char* out, size_t out_size,
+                                             char* err, size_t err_size) {
+    return open_dialog(true, default_dir, out, out_size, err, err_size);
 }

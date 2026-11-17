@@ -36,6 +36,9 @@ typedef struct {
     uint8_t roml[0x2000];   // $FF where the cartridge has no ROM
     uint8_t romh[0x2000];
     char sha1[41];          // SHA-1 of the ROM chip data, lowercase hex
+    // ROM chips in file order: the "data view" that sha1 covers (and patch mods use)
+    int chip_count;
+    struct { uint16_t addr, size; } chips[4];
 } cart_t;
 
 // Parse a .crt image. Returns false with a human-readable message in err on failure.
@@ -47,6 +50,12 @@ bool cart_from_bin(const uint8_t* data, size_t size, uint16_t load_addr, cart_t*
 
 // True if data starts with the .crt signature.
 bool cart_is_crt(const uint8_t* data, size_t size);
+
+// The ROM chip data as one buffer, in file order (what sha1 covers):
+// size, copy out, and write back (4K chips are re-mirrored).
+size_t cart_data_size(const cart_t* c);
+void cart_data_get(const cart_t* c, uint8_t* out);
+void cart_data_put(cart_t* c, const uint8_t* in);
 
 // Human-readable name of a .crt hardware type ("Ocean type 1", ...), or NULL if unknown.
 const char* cart_hw_type_name(uint16_t hw_type);

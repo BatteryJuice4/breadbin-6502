@@ -86,6 +86,49 @@ static bool place_chip(cart_t* c, uint16_t addr, const uint8_t* src, uint32_t si
     return true;
 }
 
+static void note_chip(cart_t* c, uint16_t addr, uint32_t size) {
+    // place_chip allows at most one chip per 8K window, so 4 entries are plenty
+    if (c->chip_count < 4) {
+        c->chips[c->chip_count].addr = addr;
+        c->chips[c->chip_count].size = (uint16_t)size;
+        c->chip_count++;
+    }
+}
+
+// The 8K window (ROML or ROMH) and offset holding chip address a.
+static uint8_t* chip_window(cart_t* c, uint32_t a, uint32_t* off) {
+    *off = a & 0x1FFF;
+    return (a < 0xA000) ? c->roml : c->romh;
+}
+
+size_t cart_data_size(const cart_t* c) {
+    size_t n = 0;
+    for (int i = 0; i < c->chip_count; i++) n += c->chips[i].size;
+    return n;
+}
+
+void cart_data_get(const cart_t* c, uint8_t* out) {
+    for (int i = 0; i < c->chip_count; i++) {
+        for (uint32_t j = 0; j < c->chips[i].size; j++) {
+            uint32_t off;
+            const uint8_t* w = chip_window((cart_t*)c, (uint32_t)c->chips[i].addr + j, &off);
+            *out++ = w[off];
+        }
+    }
+}
+
+void cart_data_put(cart_t* c, const uint8_t* in) {
+    for (int i = 0; i < c->chip_count; i++) {
+        for (uint32_t j = 0; j < c->chips[i].size; j++) {
+            uint32_t off;
+            uint8_t* w = chip_window(c, (uint32_t)c->chips[i].addr + j, &off);
+            w[off] = *in;
+            if (c->chips[i].size == 0x1000) w[off ^ 0x1000] = *in;   // 4K chips are mirrored
+            in++;
+        }
+    }
+}
+
 bool cart_is_crt(const uint8_t* data, size_t size) {
     return data && size >= 16 && memcmp(data, CRT_SIGNATURE, 16) == 0;
 }
@@ -162,6 +205,7 @@ bool cart_parse_crt(const uint8_t* data, size_t size, cart_t* out, char* err, si
                 return false;
             }
             sha1_update(&sha, payload, rom_size);
+            note_chip(out, load_addr, rom_size);
             nchips++;
         }
         pos += packet_len;
@@ -202,6 +246,7 @@ bool cart_from_bin(const uint8_t* data, size_t size, uint16_t load_addr, cart_t*
     if (!place_chip(out, load_addr, data, (uint32_t)size, err, err_size)) {
         return false;
     }
+    note_chip(out, load_addr, (uint32_t)size);
     sha1_hex(data, size, out->sha1);
     return true;
 }

@@ -65,7 +65,7 @@ integer_scaling   = true
 aspect_correction = true
 crop_border       = false  # show only the 320x200 picture
 filter            = "nearest"   # "nearest" | "smooth"
-palette           = "pepto"     # reserved: more palettes come later
+palette           = "colodore"  # default palette: "colodore", "pepto", or "mod:<mod id>"
 extended_view_max_width = 0     # reserved: 0 = no extended (widescreen) view
 ```
 

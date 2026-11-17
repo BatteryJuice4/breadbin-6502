@@ -1,5 +1,6 @@
 // Unit tests for settings (TOML load/save) and key names.
 #include "settings/settings.h"
+#include "video/palettes.h"
 #include "input/keynames.h"
 #include "platform/paths.h"
 
@@ -36,7 +37,10 @@ static void test_roundtrip(void) {
     settings_t a, b;
     settings_default(&a);
     strcpy(a.rom_path, "C:\\Games\\C64\\\"quoted\" name\tx.crt");
-    a.video = (video_settings_t){ 5, true, false, false, true, VIDEO_FILTER_LINEAR };
+    a.video = (video_settings_t){ 5, true, false, false, true, VIDEO_FILTER_LINEAR, "mod:my-palette" };
+    a.mods_enabled_count = 2;
+    strcpy(a.mods_enabled[0], "zeta");
+    strcpy(a.mods_enabled[1], "alpha.v2");
     a.audio = (audio_settings_t){ 0.25f, true, 120 };
     a.input.keys[INPUT_FIRE][0] = input_key_from_name("Space");
     a.input.keys[INPUT_FIRE][1] = input_key_from_name("LCtrl");
@@ -58,6 +62,8 @@ static void test_roundtrip(void) {
           a.audio.mute == b.audio.mute && a.audio.latency_ms == b.audio.latency_ms &&
           a.audio.volume > b.audio.volume - 0.001f && a.audio.volume < b.audio.volume + 0.001f &&
           !memcmp(&a.input, &b.input, sizeof(a.input))), "round-trip mismatch:\n%s", text);
+    CHECK(b.mods_enabled_count == 2 && !strcmp(b.mods_enabled[0], "zeta") && !strcmp(b.mods_enabled[1], "alpha.v2"),
+          "mod order round-trip");
     CHECK(!strcmp(a.rom_path, b.rom_path), "rom path '%s' vs '%s'", a.rom_path, b.rom_path);
 
     // Truncated buffer: snprintf-style, NUL-terminated, same reported size
@@ -78,7 +84,9 @@ static void test_partial_and_invalid(void) {
         "[video]\nscale = 99\nfullscreen = \"yes\"\nfilter = \"blurry\"\n"
         "[audio]\nvolume = 2.5\nlatency_ms = 5\n"
         "[input]\nfire = [\"Space\", \"Gamepad_A\", \"LCtrl\", \"X\"]\njoystick_port = 3\nup = 7\nmenu = \"NoSuchKey\"\n"
-        "[unknown]\nfoo = 1\n"), "invalid values must not be a parse error: %s", err);
+        "[unknown]\nfoo = 1\n"
+        "[mods]\nenabled = [\"good\", \"Bad Id\", 3, \"also-good\"]\n"), "invalid values must not be a parse error: %s", err);
+    CHECK(s.mods_enabled_count == 2 && !strcmp(s.mods_enabled[1], "also-good"), "bad mod ids not skipped");
     CHECK(s.video.window_scale == def.video.window_scale, "scale 99 accepted");
     CHECK(s.video.fullscreen == def.video.fullscreen, "fullscreen string accepted");
     CHECK(s.audio.volume == def.audio.volume && s.audio.latency_ms == def.audio.latency_ms, "bad audio accepted");
@@ -88,7 +96,11 @@ static void test_partial_and_invalid(void) {
     CHECK(s.input.keys[INPUT_UP][0] == def.input.keys[INPUT_UP][0], "non-string 'up' accepted");
     CHECK(s.input.menu_key == def.input.menu_key, "unknown menu key replaced the menu key");
     CHECK(strstr(warns, "scale") && strstr(warns, "Gamepad_A") && strstr(warns, "\"X\" ignored") &&
-          strstr(warns, "menu"), "missing warnings:\n%s", warns);
+          strstr(warns, "menu") && strstr(warns, "[mods]"), "missing warnings:\n%s", warns);
+    settings_default(&s);
+    CHECK(parse(&s, "[video]\npalette = \"psychedelic\"\n") && !strcmp(s.video.palette, PALETTE_DEFAULT) &&
+          strstr(warns, "psychedelic"), "unknown palette accepted");
+    CHECK(parse(&s, "[video]\npalette = \"pepto\"\n") && !strcmp(s.video.palette, "pepto"), "pepto rejected");
 
     // Syntax error: settings untouched
     settings_default(&s);

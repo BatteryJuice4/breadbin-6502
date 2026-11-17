@@ -11,6 +11,7 @@
 extern "C" {
 #include "input/keynames.h"
 #include "platform/paths.h"
+#include "video/palettes.h"
 }
 
 #include <algorithm>
@@ -36,6 +37,7 @@ struct Ui {
 
     // built-in file browser
     bool browser_open = false;
+    bool browser_mods = false;      // listing .c64mod packages instead of games
     bool browser_refresh = false;
     char browser_dir[SETTINGS_PATH_MAX] = {};
     std::vector<BrowserEntry> browser_entries;
@@ -59,7 +61,15 @@ bool strcasecmp_portable(const std::string& a, const std::string& b) {
     });
 }
 
+bool has_mod_ext(const std::string& n) {
+    if (n.size() < 7) return false;
+    std::string e = n.substr(n.size() - 7);
+    for (char& c : e) c = (char)tolower((unsigned char)c);
+    return e == ".c64mod";
+}
+
 bool has_rom_ext(const std::string& n) {
+    if (g.browser_mods) return has_mod_ext(n);
     if (n.size() < 4) return false;
     std::string e = n.substr(n.size() - 4);
     for (char& c : e) c = (char)tolower((unsigned char)c);
@@ -182,8 +192,9 @@ void file_browser_window(ui_state_t* st) {
         g.browser_refresh = false;
     }
     center_next_window(0.8f, 0.8f);
-    ImGui::OpenPopup("Select ROM file");
-    if (ImGui::BeginPopupModal("Select ROM file", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+    const char* title = g.browser_mods ? "Install mod###browser" : "Select ROM file###browser";
+    ImGui::OpenPopup("###browser");
+    if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
         if (ImGui::Button("Up")) browser_up();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1);
@@ -207,7 +218,8 @@ void file_browser_window(ui_state_t* st) {
             }
         }
         ImGui::EndChild();
-        ImGui::TextColored(kDimColor, "Showing folders and .crt .bin .d64 .prg .t64 .tap files.");
+        ImGui::TextColored(kDimColor, g.browser_mods ? "Showing folders and .c64mod files."
+                                                     : "Showing folders and .crt .bin .d64 .prg .t64 .tap files.");
         const bool can_open = g.browser_selected >= 0 && g.browser_selected < (int)g.browser_entries.size();
         ImGui::BeginDisabled(!can_open);
         if (ImGui::Button("Open")) {
@@ -225,7 +237,7 @@ void file_browser_window(ui_state_t* st) {
             g.browser_refresh = true;
         } else if (!open_file.empty()) {
             snprintf(st->load_path, sizeof(st->load_path), "%s", join(g.browser_dir, open_file).c_str());
-            st->act_load_path = true;
+            if (g.browser_mods) st->act_mod_install_path = true; else st->act_load_path = true;
             g.browser_open = false;
             ImGui::CloseCurrentPopup();
         }
@@ -341,6 +353,18 @@ void loading_overlay(const ui_state_t* st) {
     ImGui::End();
 }
 
+std::string palette_label(const ui_state_t* st, const char* id) {
+    if (const palette_t* p = palette_find_builtin(id)) return p->name;
+    if (!strncmp(id, "mod:", 4) && st->mods) {
+        const int i = modset_find(st->mods, id + 4);
+        if (i >= 0) {
+            const mod_entry_t* e = st->mods->entries[i];
+            if (e->usable && e->mod.type == MOD_TYPE_PALETTE) return std::string(e->mod.palette_name) + " (mod)";
+        }
+    }
+    return std::string(id) + " (not available)";
+}
+
 void tab_video(ui_state_t* st) {
     video_settings_t& v = st->settings->video;
     bool ch = false;
@@ -356,12 +380,34 @@ void tab_video(ui_state_t* st) {
     int filter = (int)v.filter;
     const char* filters[] = { "Nearest (sharp)", "Smooth" };
     if (ImGui::Combo("Filter", &filter, filters, 2)) { v.filter = (video_filter_t)filter; ch = true; }
-    ImGui::BeginDisabled();
-    int pal = 0;
-    const char* palettes[] = { "Pepto" };
-    ImGui::Combo("Palette", &pal, palettes, 1);
-    ImGui::EndDisabled();
-    dim_text("More palettes are planned.");
+    // built-in palettes, then enabled palette mods
+    std::string current = palette_label(st, v.palette);
+    if (ImGui::BeginCombo("Palette", current.c_str())) {
+        for (int i = 0; i < palette_builtin_count(); i++) {
+            const palette_t* p = palette_builtin(i);
+            if (ImGui::Selectable(p->name, !strcmp(v.palette, p->id))) {
+                snprintf(v.palette, sizeof(v.palette), "%s", p->id);
+                ch = true;
+            }
+        }
+        const modset_t* ms = st->mods;
+        for (int i = 0; ms && i < ms->count; i++) {
+            const mod_entry_t* e = ms->entries[i];
+            if (!e->usable || e->mod.type != MOD_TYPE_PALETTE) continue;
+            char id[sizeof(v.palette)];
+            snprintf(id, sizeof(id), "mod:%s", e->mod.id);
+            std::string label = std::string(e->mod.palette_name) + " (mod)##" + e->mod.id;
+            if (ImGui::Selectable(label.c_str(), !strcmp(v.palette, id))) {
+                snprintf(v.palette, sizeof(v.palette), "%s", id);
+                ch = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (!strncmp(v.palette, "mod:", 4) && current.find("(not available)") != std::string::npos) {
+        dim_text("That palette's mod isn't enabled, so the default palette is shown.");
+    }
+    dim_text("Palette mods appear here once enabled in the Mods tab.");
     ImGui::Spacing();
     if (ImGui::Button("Reset video to defaults##video") && st->defaults) {
         const bool fs = v.fullscreen;   // fullscreen is a window state, not a game default
@@ -432,6 +478,126 @@ void tab_input(ui_state_t* st) {
     }
 }
 
+// One mod row: checkbox, name, version, type; load-order arrows; details on expand.
+void mod_row(ui_state_t* st, int index, int order_pos) {
+    modset_t* ms = st->mods;
+    mod_entry_t* e = ms->entries[index];
+    ImGui::PushID(index);
+    bool on = e->enabled;
+    const bool can_toggle = e->loaded || e->enabled;   // broken mods can only be switched off
+    ImGui::BeginDisabled(!can_toggle);
+    if (ImGui::Checkbox("##on", &on)) {
+        modset_enable(ms, index, on);
+        st->act_mods_changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const char* name = e->loaded ? e->mod.name : e->file_id;
+    char head[256];
+    if (e->loaded) {
+        snprintf(head, sizeof(head), "%s %s  [%s]%s###mod", name, e->mod.version, mod_type_name(e->mod.type),
+                 e->source == MOD_SOURCE_BUNDLED ? "  (comes with the game)" : "");
+    } else {
+        snprintf(head, sizeof(head), "%s###mod", name);
+    }
+    const bool open = ImGui::TreeNodeEx(head, ImGuiTreeNodeFlags_SpanAvailWidth);
+    if (order_pos >= 0) {
+        // arrows at the right edge
+        const float w = ImGui::GetFrameHeight();
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - 2.0f * w - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::BeginDisabled(order_pos == 0);
+        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) { modset_move(ms, order_pos, -1); st->act_mods_changed = true; }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(order_pos == ms->order_count - 1);
+        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) { modset_move(ms, order_pos, 1); st->act_mods_changed = true; }
+        ImGui::EndDisabled();
+    }
+    if (e->status[0]) {
+        ImGui::Indent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
+        if (e->enabled && !e->usable) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+            ImGui::TextWrapped("%s", e->status);
+            ImGui::PopStyleColor();
+        } else {
+            dim_text("%s", e->status);
+        }
+        ImGui::Unindent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
+    }
+    if (open) {
+        if (e->loaded) {
+            const mod_t* m = &e->mod;
+            if (m->description[0]) ImGui::TextWrapped("%s", m->description);
+            if (m->author[0]) dim_text("By %s", m->author);
+            dim_text("Id: %s", m->id);
+            if (m->dep_count) {
+                std::string d;
+                for (int i = 0; i < m->dep_count; i++) {
+                    d += (i ? ", " : "") + std::string(m->deps[i].id);
+                    if (m->deps[i].min_version[0]) d += std::string(" ") + m->deps[i].min_version + "+";
+                }
+                dim_text("Needs: %s", d.c_str());
+            }
+            if (m->type == MOD_TYPE_CHEAT) {
+                for (int i = 0; i < m->cheat_count; i++) {
+                    const mod_cheat_t* c = &m->cheats[i];
+                    dim_text("  %s$%04X (%u byte%s, %s)", c->label[0] ? (std::string(c->label) + ": ").c_str() : "",
+                             c->address, c->len, c->len == 1 ? "" : "s", c->freeze ? "every frame" : "once");
+                }
+            }
+        }
+        dim_text("File: %s", e->path);
+        if (e->source == MOD_SOURCE_INSTALLED && !platform_is_dir(e->path)) {
+            if (ImGui::SmallButton("Uninstall")) {
+                st->mod_index = index;
+                st->act_mod_uninstall = true;
+            }
+        }
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
+void tab_mods(ui_state_t* st) {
+    modset_t* ms = st->mods;
+    if (!ms) {
+        dim_text("Mods aren't available.");
+        return;
+    }
+    if (ImGui::Button("Install mod...")) st->act_mod_install = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Rescan")) st->act_mods_rescan = true;
+    if (st->mods_message[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, st->mods_message_is_error ? kErrorColor : kOkColor);
+        ImGui::TextWrapped("%s", st->mods_message);
+        ImGui::PopStyleColor();
+    }
+    if (st->mods_restart_needed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+        ImGui::TextWrapped("Patch mods changed. They apply when the game is loaded again.");
+        ImGui::PopStyleColor();
+        if (ImGui::Button("Restart the game now")) st->act_mods_restart = true;
+    }
+    if (ms->scan_errors[0]) dim_text("%s", ms->scan_errors);
+    ImGui::Spacing();
+    if (ms->count == 0) {
+        dim_text("No mods installed. Mods come as .c64mod files: use \"Install mod...\" to add one. "
+                 "Mods are off until you enable them here.");
+        return;
+    }
+    ImGui::SeparatorText("Enabled (in load order: later mods win)");
+    if (ms->order_count == 0) dim_text("None. Tick a mod below to enable it.");
+    for (int p = 0; p < ms->order_count; p++) mod_row(st, ms->order[p], p);
+    ImGui::SeparatorText("Available");
+    int shown = 0;
+    for (int i = 0; i < ms->count; i++) {
+        if (ms->entries[i]->enabled) continue;
+        mod_row(st, i, -1);
+        shown++;
+    }
+    if (!shown) dim_text("All mods are enabled.");
+}
+
 void menu_screen(ui_state_t* st) {
     center_next_window(0.9f, 0.85f);
     char title[160];
@@ -465,6 +631,7 @@ void menu_screen(ui_state_t* st) {
         tab("Video", tab_video);
         tab("Audio", tab_audio);
         tab("Input", tab_input);
+        tab("Mods", tab_mods);
         ImGui::EndTabBar();
     }
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() - ImGui::GetTextLineHeightWithSpacing() * 1.5f);
@@ -584,6 +751,12 @@ void ui_open_file_browser(const char* start_dir) {
     }
     g.browser_open = true;
     g.browser_refresh = true;
+    g.browser_mods = false;
+}
+
+void ui_open_mod_browser(const char* start_dir) {
+    ui_open_file_browser(start_dir);
+    g.browser_mods = true;
 }
 
 void ui_frame(ui_state_t* st) {

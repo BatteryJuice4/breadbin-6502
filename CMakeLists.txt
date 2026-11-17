@@ -106,6 +106,7 @@ add_library(bb_core STATIC
     src/gamepack/gamepack_load.c
     src/input/keynames.c
     src/util/crc32.c
+    src/video/palettes.c
     src/util/stb_impl.c
     src/mods/zip.c
     src/mods/mod.c

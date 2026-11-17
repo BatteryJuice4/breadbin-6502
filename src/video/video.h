@@ -11,6 +11,8 @@ extern "C" {
 void video_init(void);
 void video_shutdown(void);
 void video_set_settings(const video_settings_t* vs);
+// The 16 colours used for display (0xRRGGBB). Starts as the default palette.
+void video_set_palette(const uint32_t rgb[16]);
 
 // Record the emulator picture for this frame. fb may be NULL (nothing drawn).
 // dim darkens the picture (used behind the menu).

@@ -97,6 +97,42 @@ static void test_ultimax(void) {
     expect_fail("Ultimax without $E000", "no ROM at $E000");
 }
 
+// The data view: same bytes (and order) as the hash, writes go back to the right place.
+static void check_view(const char* what) {
+    static uint8_t view[0x4000];
+    const size_t n = cart_data_size(&cart);
+    CHECK(n > 0 && n <= sizeof(view), "%s: view size %zu", what, n);
+    cart_data_get(&cart, view);
+    char h[41];
+    sha1_hex(view, n, h);
+    CHECK(!strcmp(h, cart.sha1), "%s: view doesn't match the hash", what);
+    for (size_t i = 0; i < n; i++) view[i] ^= 0x5A;
+    cart_data_put(&cart, view);
+    static uint8_t back[0x4000];
+    cart_data_get(&cart, back);
+    CHECK(!memcmp(back, view, n), "%s: put/get round trip", what);
+}
+
+static void test_data_view(void) {
+    crt_begin(&b, 0, 0, 0, "V16");
+    crt_chip(&b, 0, 0, 0xA000, rom_a + 0x2000, 0x2000);     // ROMH first in the file
+    crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
+    CHECK(parse(), "view 16K: %s", err);
+    check_view("16K reversed");
+    CHECK(cart.romh[0] == (uint8_t)(rom_a[0x2000] ^ 0x5A) && cart.roml[5] == (uint8_t)(rom_a[5] ^ 0x5A), "16K reversed placement");
+
+    crt_begin(&b, 0, 1, 0, "V4K");
+    crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
+    crt_chip(&b, 0, 0, 0xF000, rom_b, 0x1000);
+    CHECK(parse(), "view ultimax: %s", err);
+    CHECK(cart_data_size(&cart) == 0x3000, "ultimax view size");
+    check_view("Ultimax 4K");
+    CHECK(cart.romh[3] == cart.romh[0x1003] && cart.romh[3] == (uint8_t)(rom_b[3] ^ 0x5A), "4K mirror after put");
+
+    CHECK(cart_from_bin(rom_a, 0x4000, 0x8000, &cart, err, sizeof(err)), "bin: %s", err);
+    check_view("16K bin");
+}
+
 static void test_errors(void) {
     memset(b.buf, 0, sizeof(b.buf));
     b.len = 100;
@@ -184,6 +220,7 @@ int main(void) {
     test_16k();
     test_ultimax();
     test_errors();
+    test_data_view();
     if (failures == 0) printf("test_cart: all passed\n");
     return failures ? 1 : 0;
 }

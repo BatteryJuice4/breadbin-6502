@@ -365,6 +365,37 @@ int modset_apply_patches(modset_t* s, uint8_t* buf, size_t size) {
     return applied;
 }
 
+void modset_fail_patches(modset_t* s, const char* reason) {
+    for (int i = 0; i < s->order_count; i++) {
+        mod_entry_t* e = s->entries[s->order[i]];
+        if (!e->usable || e->mod.type != MOD_TYPE_PATCH) continue;
+        e->failed = true;
+        e->usable = false;
+        snprintf(e->status, sizeof(e->status), "Couldn't apply: %s", reason);
+    }
+}
+
+void modset_clear_failures(modset_t* s) {
+    for (int i = 0; i < s->count; i++) {
+        if (s->entries[i]->failed) {
+            s->entries[i]->failed = false;
+            s->entries[i]->status[0] = 0;
+        }
+    }
+}
+
+void modset_patch_signature(const modset_t* s, char* out, size_t out_size) {
+    size_t len = 0;
+    if (out_size) out[0] = 0;
+    for (int i = 0; i < s->order_count; i++) {
+        const mod_entry_t* e = s->entries[s->order[i]];
+        if (!e->usable || e->mod.type != MOD_TYPE_PATCH) continue;
+        const int n = snprintf(out + len, out_size - len, "%s%s@%s", len ? "," : "", e->mod.id, e->sha1);
+        if (n < 0 || (size_t)n >= out_size - len) break;
+        len += (size_t)n;
+    }
+}
+
 void modset_apply_cheats(const modset_t* s, core_t* core, bool first) {
     for (int i = 0; i < s->order_count; i++) {
         const mod_entry_t* e = s->entries[s->order[i]];

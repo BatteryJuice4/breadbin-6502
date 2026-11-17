@@ -39,7 +39,7 @@ static const char* full_pack =
     "default_scale = 4\n"
     "crop_border = true\n"
     "filter = \"smooth\"\n"
-    "palette = \"colodore\"\n"
+    "palette = \"pepto\"\n"
     "extended_view_max_width = 0\n";
 
 static void test_full(void) {
@@ -51,7 +51,7 @@ static void test_full(void) {
     CHECK(p.media == GAMEPACK_MEDIA_CARTRIDGE && p.ntsc && p.sid_model == 8580, "media/video/sid");
     CHECK(p.cart_type == GAMEPACK_CART_16K && p.bin_load_address == 0x8000, "rom table");
     CHECK(p.known_sha1_count == 2 && !strcmp(p.known_sha1[0], "da39a3ee5e6b4b0d3255bfef95601890afd80709"), "hashes lowercased");
-    CHECK(!strcmp(p.palette, "colodore") && p.extended_view_max_width == 0, "palette");
+    CHECK(!strcmp(p.palette, "pepto") && !strcmp(d.video.palette, "pepto") && p.extended_view_max_width == 0, "palette");
     // defaults layered onto settings
     CHECK(d.input.joystick_port == 1, "joystick_port default");
     CHECK(d.input.keys[INPUT_UP][0] == input_key_from_name("Up") && d.input.keys[INPUT_UP][1] == 0, "up binding replaces both slots");
@@ -84,7 +84,7 @@ static void test_required_and_invalid(void) {
         "min_launcher_version = \"soon\"\nsystem_roms = \"maybe\"\ntypo_key = 1\n"
         "[rom]\ncart_type = \"ocean\"\nload_address = 0x1234\nknown_sha1 = [\"abc\", 5]\n"
         "[input.default]\nup = \"NoSuchKey\"\nmenu = \"KP_8\"\njump = \"Space\"\n"
-        "[video]\ndefault_scale = 20\ncrop_border = \"yes\"\n"), "bad optional values rejected: %s", err);
+        "[video]\ndefault_scale = 20\ncrop_border = \"yes\"\npalette = \"neon\"\n"), "bad optional values rejected: %s", err);
     CHECK(p.media == GAMEPACK_MEDIA_CARTRIDGE && !p.ntsc && p.cart_type == GAMEPACK_CART_AUTO, "bad values not ignored");
     CHECK(p.known_sha1_count == 0 && p.bin_load_address == 0 && !p.min_launcher_version[0], "bad rom values not ignored");
     CHECK(d.input.joystick_port == 2 && d.video.window_scale == 3 && !d.video.crop_border, "bad defaults applied");
@@ -96,7 +96,7 @@ static void test_required_and_invalid(void) {
             CHECK(d.input.keys[a][b] != d.input.menu_key, "menu key still bound to action %d", a);
     const char* expect[] = { "media", "video_standard", "joystick_port", "min_launcher_version", "system_roms",
                              "typo_key", "cart_type", "load_address", "entry 1", "entry 2", "NoSuchKey", "jump",
-                             "default_scale", "crop_border" };
+                             "default_scale", "crop_border", "neon" };
     for (size_t i = 0; i < sizeof(expect) / sizeof(expect[0]); i++) {
         CHECK(strstr(warns, expect[i]) != NULL, "missing warning about '%s' in:\n%s", expect[i], warns);
     }
