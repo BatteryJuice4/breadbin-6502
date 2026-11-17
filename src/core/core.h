@@ -109,6 +109,47 @@ bool core_insert_cart(core_t* core, const cart_t* cart);
 void core_remove_cart(core_t* core);
 bool core_has_cart(const core_t* core);
 
+// ---- Files: KERNAL LOAD trap ("virtual drive") ----------------------------
+// When the CPU calls the KERNAL LOAD entry ($FFD5, with the KERNAL ROM mapped in),
+// the core asks the file callback for the file. If the callback serves it, the
+// load completes instantly (as LOAD would: secondary address 0 loads to X/Y, else
+// to the file's own address; end address in X/Y and $AE/$AF; carry clear) and the
+// real KERNAL code is skipped. Programs that talk to the drive directly
+// (fastloaders) bypass LOAD and aren't served. Deterministic: the result depends
+// only on the callback's data.
+typedef enum {
+    CORE_FILE_NOT_HANDLED = 0,  // not our device: let the real KERNAL LOAD run
+    CORE_FILE_OK,               // *len bytes in buf: 2-byte load address + data
+    CORE_FILE_NOT_FOUND,        // LOAD fails with "FILE NOT FOUND"
+} core_file_result_t;
+
+#define CORE_FILE_MAX (2u + 0x10000u)
+
+// name: the PETSCII file name as passed to LOAD (not terminated).
+typedef core_file_result_t (*core_file_fn)(void* user_data, uint8_t device, const uint8_t* name,
+                                           size_t name_len, uint8_t* buf, size_t buf_size, size_t* len);
+void core_set_file_loader(core_t* core, core_file_fn fn, void* user_data);
+uint32_t core_files_loaded(const core_t* core);     // loads served since core_create
+
+// ---- Tape (C1530 datasette, .tap) ---------------------------------------------
+// The image is copied. Accepts TAP version 1 (version 0 must be converted first,
+// see media/tap.h). Returns false for malformed or too large images.
+bool core_insert_tape(core_t* core, const uint8_t* tap, size_t size);
+void core_remove_tape(core_t* core);
+void core_tape_play(core_t* core);          // press PLAY (the motor follows the C64's control line)
+void core_tape_stop(core_t* core);          // release the buttons
+bool core_tape_motor_on(const core_t* core);
+bool core_tape_at_end(const core_t* core);  // inserted and all pulses played
+
+// ---- PC watches ----------------------------------------------------------------
+// Count instruction fetches at an address (e.g. a KERNAL entry or a game's main
+// loop). Returns a watch id (0..CORE_MAX_WATCHES-1), or -1 if all are in use.
+// Hits are counted since the last reset (core_reset clears them, keeps the watches).
+#define CORE_MAX_WATCHES 4
+int core_add_watch(core_t* core, uint16_t pc);
+uint32_t core_watch_hits(const core_t* core, int id);
+void core_clear_watches(core_t* core);
+
 // Raw 64 KB RAM access (not the CPU's banked view). For tests, cheats, fingerprints.
 uint8_t core_ram_read(const core_t* core, uint16_t addr);
 void core_ram_write(core_t* core, uint16_t addr, uint8_t value);
