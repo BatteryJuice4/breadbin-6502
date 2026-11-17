@@ -87,6 +87,9 @@ typedef struct {
 // Returns NULL on invalid arguments (e.g. wrong ROM sizes, unsupported video std).
 core_t* core_create(const core_desc_t* desc);
 void core_destroy(core_t* core);
+// Power cycle: the machine starts exactly as after core_create (RAM, chips,
+// keyboard), keeping the inserted cartridge, tape (rewound), file loader and watches.
+// So a restarted game behaves the same whatever ran before.
 void core_reset(core_t* core);
 
 // Run exactly one video frame worth of CPU cycles.
@@ -132,8 +135,10 @@ void core_set_file_loader(core_t* core, core_file_fn fn, void* user_data);
 uint32_t core_files_loaded(const core_t* core);     // loads served since core_create
 
 // ---- Tape (C1530 datasette, .tap) ---------------------------------------------
-// The image is copied. Accepts TAP version 1 (version 0 must be converted first,
-// see media/tap.h). Returns false for malformed or too large images.
+// The image is copied, and must also stay valid until it is removed or replaced:
+// a reset (power cycle) inserts it again, rewound. Accepts TAP version 1 (version 0
+// must be converted first, see media/tap.h). Returns false for malformed or too
+// large images.
 bool core_insert_tape(core_t* core, const uint8_t* tap, size_t size);
 void core_remove_tape(core_t* core);
 void core_tape_play(core_t* core);          // press PLAY (the motor follows the C64's control line)

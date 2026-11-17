@@ -60,9 +60,66 @@ struct core {
     uint16_t watch_pc[CORE_MAX_WATCHES];
     uint32_t watch_hits[CORE_MAX_WATCHES];
     uint8_t file_buf[CORE_FILE_MAX];
+    // What core_power_on() needs to rebuild the machine
+    core_audio_fn audio_fn;
+    void* audio_user;
+    int audio_sample_rate;
+    uint8_t rom_kernal[0x2000], rom_basic[0x2000], rom_chargen[0x1000];
+    const uint8_t* tape;        // caller's image (must stay valid while inserted)
+    size_t tape_size;
 };
 
 #define CORE_KERNAL_LOAD 0xFFD5
+
+// Build the machine from scratch, as after switching it on, keeping the inserted
+// cartridge and tape (rewound). chips' c64_reset() only pulls the CPU's reset line
+// and resets some chip registers: RAM, colour RAM, the keyboard matrix, the CPU's
+// place in its current instruction and the datasette would carry over from the
+// previous run, so a restarted game wouldn't start from the same state every time
+// (and replays recorded after a restart wouldn't play back).
+static void core_power_on(core_t* core) {
+    c64_t* sys = &core->sys;
+    const bool had_sys = sys->valid;
+    const bool exrom = had_sys && sys->exp_exrom, game = had_sys && sys->exp_game;
+    uint8_t roml[0x2000], romh[0x2000];
+    if (core->has_cart) {
+        memcpy(roml, sys->exp_roml, sizeof(roml));
+        memcpy(romh, sys->exp_romh, sizeof(romh));
+    }
+    if (had_sys) c64_discard(sys);
+    c64_init(sys, &(c64_desc_t){
+        // NONE: keys always go to the keyboard matrix. Joysticks are driven only
+        // through c64_joystick(), whose masks chips applies regardless of type.
+        .joystick_type = C64_JOYSTICKTYPE_NONE,
+        .ntsc = core->ntsc,
+        .c1530_enabled = true,
+        .audio = {
+            .callback = { .func = core->audio_fn, .user_data = core->audio_user },
+            .sample_rate = core->audio_sample_rate,
+        },
+        .roms = {
+            .chars  = { .ptr = core->rom_chargen, .size = sizeof(core->rom_chargen) },
+            .basic  = { .ptr = core->rom_basic,   .size = sizeof(core->rom_basic) },
+            .kernal = { .ptr = core->rom_kernal,  .size = sizeof(core->rom_kernal) },
+        },
+    });
+    // Workaround for a chips keymap bug (@7ef8776): the shifted layer also maps
+    // '0' to the 0 key, overwriting the unshifted entry, so typing '0' sends
+    // SHIFT+0 (which produces nothing). Re-register it unshifted: column 3, line 4.
+    kbd_register_key(&sys->kbd, '0', 3, 4, 0);
+    if (core->has_cart) {
+        c64_set_expansion(sys, exrom, game, roml, romh);
+        c64_reset(sys);
+    }
+    if (core->tape) {
+        c1530_insert_tape(&sys->c1530, (chips_range_t){ .ptr = (void*)core->tape, .size = core->tape_size });
+    }
+    core->joy[0] = core->joy[1] = 0;
+    core->frame_count = 0;
+    core->load_rts = false;
+    core->prev_sync = -1;
+    memset(core->watch_hits, 0, sizeof(core->watch_hits));
+}
 
 core_t* core_create(const core_desc_t* desc) {
     if (!desc || (desc->video_std != CORE_VIDEO_PAL && desc->video_std != CORE_VIDEO_NTSC)) {
@@ -82,27 +139,13 @@ core_t* core_create(const core_desc_t* desc) {
     const uint32_t freq = core->ntsc ? C64_NTSC_FREQUENCY : C64_FREQUENCY;
     core->frame_us = (uint32_t)(((uint64_t)core->cycles_per_frame * 1000000u) / freq);
 
-    c64_init(&core->sys, &(c64_desc_t){
-        // NONE: keys always go to the keyboard matrix. Joysticks are driven only
-        // through c64_joystick(), whose masks chips applies regardless of type.
-        .joystick_type = C64_JOYSTICKTYPE_NONE,
-        .ntsc = core->ntsc,
-        .c1530_enabled = true,
-        .audio = {
-            .callback = { .func = desc->audio_fn, .user_data = desc->audio_user_data },
-            .sample_rate = desc->audio_sample_rate > 0 ? desc->audio_sample_rate : 44100,
-        },
-        .roms = {
-            .chars  = { .ptr = (void*)desc->rom_chargen, .size = desc->rom_chargen_size },
-            .basic  = { .ptr = (void*)desc->rom_basic,   .size = desc->rom_basic_size },
-            .kernal = { .ptr = (void*)desc->rom_kernal,  .size = desc->rom_kernal_size },
-        },
-    });
-    // Workaround for a chips keymap bug (@7ef8776): the shifted layer also maps
-    // '0' to the 0 key, overwriting the unshifted entry, so typing '0' sends
-    // SHIFT+0 (which produces nothing). Re-register it unshifted: column 3, line 4.
-    kbd_register_key(&core->sys.kbd, '0', 3, 4, 0);
-    core->prev_sync = -1;
+    core->audio_fn = desc->audio_fn;
+    core->audio_user = desc->audio_user_data;
+    core->audio_sample_rate = desc->audio_sample_rate > 0 ? desc->audio_sample_rate : 44100;
+    memcpy(core->rom_kernal, desc->rom_kernal, sizeof(core->rom_kernal));
+    memcpy(core->rom_basic, desc->rom_basic, sizeof(core->rom_basic));
+    memcpy(core->rom_chargen, desc->rom_chargen, sizeof(core->rom_chargen));
+    core_power_on(core);
     return core;
 }
 
@@ -114,12 +157,7 @@ void core_destroy(core_t* core) {
 }
 
 void core_reset(core_t* core) {
-    c64_reset(&core->sys);
-    core->joy[0] = core->joy[1] = 0;
-    core->frame_count = 0;
-    core->load_rts = false;
-    core->prev_sync = -1;
-    memset(core->watch_hits, 0, sizeof(core->watch_hits));
+    core_power_on(core);
 }
 
 // KERNAL LOAD at $FFD5: serve the file from the callback. Returns true when the
@@ -316,11 +354,19 @@ uint32_t core_files_loaded(const core_t* core) {
 
 bool core_insert_tape(core_t* core, const uint8_t* tap, size_t size) {
     if (!tap || size == 0) return false;
-    return c1530_insert_tape(&core->sys.c1530, (chips_range_t){ .ptr = (void*)tap, .size = size });
+    if (!c1530_insert_tape(&core->sys.c1530, (chips_range_t){ .ptr = (void*)tap, .size = size })) {
+        core_remove_tape(core);
+        return false;
+    }
+    core->tape = tap;
+    core->tape_size = size;
+    return true;
 }
 
 void core_remove_tape(core_t* core) {
     c1530_remove_tape(&core->sys.c1530);
+    core->tape = NULL;
+    core->tape_size = 0;
 }
 
 // Workaround: c1530_play() also forces the motor on, but on a real C64 the motor

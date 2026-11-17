@@ -308,6 +308,34 @@ static void test_determinism(void) {
     core_destroy(b);
 }
 
+// A reset is a power cycle: a machine that has run (RAM changed, a key held, an
+// odd number of cycles into a program) must then match a fresh one frame by frame.
+static void test_reset_is_power_cycle(void) {
+    core_t* used = make_core();
+    run(used, 200);
+    for (int a = 0x0800; a < 0xA000; a += 7) core_ram_write(used, (uint16_t)a, (uint8_t)a);
+    core_key_down(used, 'Q');                 // still held when the reset happens
+    core_set_joystick(used, 2, CORE_JOY_FIRE);
+    run(used, 3);
+    core_reset(used);
+    core_t* fresh = make_core();
+    char hu[41], hf[41];
+    bool same = true;
+    for (int f = 0; f < 300 && same; f++) {
+        if (f == 260) { core_key_down(used, 'A'); core_key_down(fresh, 'A'); }
+        if (f == 263) { core_key_up(used, 'A');   core_key_up(fresh, 'A'); }
+        core_run_frame(used);
+        core_run_frame(fresh);
+        same = core_fingerprint(used) == core_fingerprint(fresh);
+        CHECK(same, "reset machine differs from a fresh one at frame %d", f);
+    }
+    hash_state(used, hu);
+    hash_state(fresh, hf);
+    CHECK(strcmp(hu, hf) == 0, "reset machine's state differs after 300 frames");
+    core_destroy(used);
+    core_destroy(fresh);
+}
+
 int main(void) {
     sysroms_load_default(&roms);
     test_create_rejects_bad_input();
@@ -317,6 +345,7 @@ int main(void) {
     test_border_color();
     test_audio();
     test_determinism();
+    test_reset_is_power_cycle();
     if (failures == 0) printf("test_core: all passed\n");
     return failures ? 1 : 0;
 }
