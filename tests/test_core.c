@@ -12,13 +12,17 @@ static int failures;
 
 static sysroms_t roms;
 
-static core_t* make_core(void) {
+static core_t* make_core_std(core_video_std_t std) {
     return core_create(&(core_desc_t){
-        .video_std = CORE_VIDEO_PAL,
+        .video_std = std,
         .rom_kernal = roms.kernal,   .rom_kernal_size = sizeof(roms.kernal),
         .rom_basic = roms.basic,     .rom_basic_size = sizeof(roms.basic),
         .rom_chargen = roms.chargen, .rom_chargen_size = sizeof(roms.chargen),
     });
+}
+
+static core_t* make_core(void) {
+    return make_core_std(CORE_VIDEO_PAL);
 }
 
 static void run(core_t* c, int frames) {
@@ -94,8 +98,8 @@ static void test_create_rejects_bad_input(void) {
     };
     CHECK(core_create(&d) == NULL, "wrong kernal size accepted");
     d.rom_kernal_size = sizeof(roms.kernal);
-    d.video_std = CORE_VIDEO_NTSC;
-    CHECK(core_create(&d) == NULL, "NTSC accepted but not implemented");
+    d.video_std = (core_video_std_t)7;
+    CHECK(core_create(&d) == NULL, "unknown video standard accepted");
 }
 
 static void test_timing(void) {
@@ -105,6 +109,55 @@ static void test_timing(void) {
     CHECK(fps > 50.12 && fps < 50.13, "PAL frame rate = %f", fps);
     core_video_t v = core_video(c);
     CHECK(v.width >= v.screen_x + v.screen_w && v.height >= v.screen_y + v.screen_h, "screen rect outside framebuffer");
+    core_destroy(c);
+}
+
+// NTSC (6567R8): 65 x 263 cycles at 1.0227 MHz. The Open ROMs KERNAL measures the
+// raster line count at boot and prints "PAL" or "NTSC" in its banner, so a correct
+// line count shows up on screen.
+static void test_ntsc(void) {
+    core_t* c = make_core_std(CORE_VIDEO_NTSC);
+    CHECK(c != NULL, "NTSC core not created");
+    if (!c) return;
+    CHECK(core_cycles_per_frame(c) == 65 * 263, "NTSC cycles/frame = %u", core_cycles_per_frame(c));
+    double fps = core_frame_rate(c);
+    CHECK(fps > 59.82 && fps < 59.83, "NTSC frame rate = %f", fps);
+    core_video_t v = core_video(c);
+    CHECK(v.width >= v.screen_x + v.screen_w && v.height >= v.screen_y + v.screen_h, "NTSC screen rect outside framebuffer");
+    CHECK(v.display_y + v.display_h <= v.screen_y + v.screen_h, "NTSC display window outside the visible area");
+    run(c, 300);
+    int ready = find_on_screen(c, "READY.", 0);
+    CHECK(ready >= 0, "NTSC: no READY. prompt after boot");
+    CHECK(find_on_screen(c, "NTSC", 0) >= 0, "NTSC: KERNAL didn't detect NTSC");
+    if (ready < 0 || find_on_screen(c, "NTSC", 0) < 0) dump_screen(c);
+
+    // Everything that isn't border/background colour (the text) must lie inside the
+    // display window that core_video reports, starting in its first text row.
+    const uint8_t bg = v.pixels[(size_t)v.screen_y * (size_t)v.width + (size_t)v.screen_x] & 15;
+    int x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1;
+    for (int y = v.screen_y; y < v.screen_y + v.screen_h; y++) {
+        for (int x = v.screen_x; x < v.screen_x + v.screen_w; x++) {
+            if ((v.pixels[(size_t)y * (size_t)v.width + (size_t)x] & 15) != bg) {
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+        }
+    }
+    CHECK(x1 >= 0, "NTSC: nothing drawn");
+    CHECK(x0 >= v.display_x && x1 < v.display_x + v.display_w && y0 >= v.display_y && y1 < v.display_y + v.display_h &&
+          y0 < v.display_y + 8, "NTSC text at x %d-%d y %d-%d, display window x %d-%d y %d-%d",
+          x0, x1, y0, y1, v.display_x, v.display_x + v.display_w - 1, v.display_y, v.display_y + v.display_h - 1);
+
+    // Determinism holds for NTSC too.
+    core_t* c2 = make_core_std(CORE_VIDEO_NTSC);
+    run(c2, 300);
+    char h1[41], h2[41];
+    hash_state(c, h1);
+    hash_state(c2, h2);
+    CHECK(!strcmp(h1, h2), "NTSC runs differ");
+    core_destroy(c2);
     core_destroy(c);
 }
 
@@ -259,6 +312,7 @@ int main(void) {
     sysroms_load_default(&roms);
     test_create_rejects_bad_input();
     test_timing();
+    test_ntsc();
     test_boot_and_basic();
     test_border_color();
     test_audio();

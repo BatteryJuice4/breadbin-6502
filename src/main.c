@@ -69,6 +69,7 @@ static struct {
     const char* cli_settings;
     const char* cli_gamepack;
     bool cli_generic;                   // --generic: ignore built-in / bundled packs
+    int cli_video_std;                  // --pal / --ntsc: 0 = game pack or PAL, 1 = PAL, 2 = NTSC
     char title[160];
     bool window_ready;
 } app;
@@ -411,6 +412,7 @@ static void usage(void) {
         "  --gamepack DIR    use the game pack in DIR (game.toml, icon.png, banner.png)\n"
         "  --generic         ignore built-in and bundled game packs (generic mode)\n"
         "  --scale N         window scale for this launch (1-8)\n"
+        "  --pal, --ntsc     video standard (default: the game pack's, else PAL)\n"
         "  --frames N        quit after N displayed frames (testing)\n");
 }
 
@@ -422,6 +424,8 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--settings") && v) { app.cli_settings = v; i++; }
         else if (!strcmp(a, "--gamepack") && v) { app.cli_gamepack = v; i++; }
         else if (!strcmp(a, "--generic"))       { app.cli_generic = true; }
+        else if (!strcmp(a, "--pal"))           { app.cli_video_std = 1; }
+        else if (!strcmp(a, "--ntsc"))          { app.cli_video_std = 2; }
         else if (!strcmp(a, "--scale") && v)    { app.scale_override = atoi(v); i++; }
         else if (!strcmp(a, "--frames") && v)   { app.quit_after_frames = atol(v); i++; }
         else if (a[0] != '-' && !app.cli_cart)  { app.cli_cart = a; }
@@ -477,10 +481,6 @@ static void load_game_pack(void) {
     if (app.gp.banner_png && !image_decode_png(app.gp.banner_png, app.gp.banner_size, BB_BANNER_MAX, &app.banner, err, sizeof(err))) {
         fprintf(stderr, "breadbin-6502: banner.png ignored: %s\n", err);
     }
-    if (p->ntsc) {
-        add_note("This game was made for NTSC machines. NTSC timing isn't emulated yet, "
-                 "so it runs on a PAL C64 and may play slower or look slightly different.");
-    }
     if (p->sid_model == 8580) {
         add_note("This game expects the 8580 SID chip. The emulator models the 6581, so the sound may differ.");
     }
@@ -508,6 +508,11 @@ static void check_playable(void) {
     }
 }
 
+static core_video_std_t video_std(void) {
+    if (app.cli_video_std) return app.cli_video_std == 2 ? CORE_VIDEO_NTSC : CORE_VIDEO_PAL;
+    return (app.gp.present && app.gp.pack.ntsc) ? CORE_VIDEO_NTSC : CORE_VIDEO_PAL;
+}
+
 sapp_desc sokol_main(int argc, char* argv[]) {
     if (!parse_args(argc, argv)) {
         exit(2);
@@ -521,7 +526,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
     audio_set_settings(&app.settings.audio);
     app.core = core_create(&(core_desc_t){
-        .video_std = CORE_VIDEO_PAL,
+        .video_std = video_std(),
         .rom_kernal = app.roms.kernal,   .rom_kernal_size = sizeof(app.roms.kernal),
         .rom_basic = app.roms.basic,     .rom_basic_size = sizeof(app.roms.basic),
         .rom_chargen = app.roms.chargen, .rom_chargen_size = sizeof(app.roms.chargen),

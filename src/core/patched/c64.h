@@ -9,6 +9,8 @@
     - CPU memory map rebuilt from the C64 PLA equations for all combinations
       of LORAM/HIRAM/CHAREN/GAME/EXROM, including Ultimax mode
     - VIC-II memory map follows Ultimax mode (ROMH visible at $x000+$3000)
+    - optional NTSC machine (c64_desc_t.ntsc): 6567R8 timing in the patched
+      m6569.h, NTSC clock for the CPU/SID, NTSC visible area
 */
 /*#
     # 64.h
@@ -261,9 +263,10 @@ extern "C" {
 #endif
 
 // bump snapshot version when c64_t memory layout changes
-#define C64_SNAPSHOT_VERSION (0x0B0001) // BREADBIN PATCH: layout changed
+#define C64_SNAPSHOT_VERSION (0x0B0002) // BREADBIN PATCH: layout changed
 
 #define C64_FREQUENCY (985248)              // clock frequency in Hz
+#define C64_NTSC_FREQUENCY (1022727)        // BREADBIN PATCH: NTSC clock frequency in Hz
 #define C64_MAX_AUDIO_SAMPLES (1024)        // max number of audio samples in internal sample buffer
 #define C64_DEFAULT_AUDIO_SAMPLES (128)     // default number of samples in internal sample buffer
 
@@ -332,6 +335,7 @@ typedef enum {
 typedef struct {
     bool c1530_enabled;     // true to enable the C1530 datassette emulation
     bool c1541_enabled;     // true to enable the C1541 floppy drive emulation
+    bool ntsc;              // BREADBIN PATCH: true for an NTSC machine
     c64_joystick_type_t joystick_type;  // default is C64_JOYSTICK_NONE
     chips_debug_t debug;    // optional debugging hook
     chips_audio_desc_t audio;   // audio output options
@@ -356,6 +360,8 @@ typedef struct {
     m6569_t vic;
     m6581_t sid;
     uint64_t pins;
+    bool ntsc;                  // BREADBIN PATCH: NTSC machine
+    uint32_t freq_hz;           // BREADBIN PATCH: CPU clock (C64_FREQUENCY or C64_NTSC_FREQUENCY)
 
     c64_joystick_type_t joystick_type;
     bool io_mapped;             // true when D000..DFFF has IO area mapped in
@@ -463,6 +469,9 @@ uint16_t c64_syscall_return_addr(void);
 #define _C64_SCREEN_HEIGHT (272)
 #define _C64_SCREEN_X (64)
 #define _C64_SCREEN_Y (24)
+// BREADBIN PATCH: NTSC visible area (beam lines counted from the retrace at line 13)
+#define _C64_NTSC_SCREEN_Y (10)
+#define _C64_NTSC_SCREEN_HEIGHT (235)
 
 static uint8_t _c64_cpu_port_in(void* user_data);
 static void _c64_cpu_port_out(uint8_t data, void* user_data);
@@ -480,6 +489,8 @@ void c64_init(c64_t* sys, const c64_desc_t* desc) {
 
     memset(sys, 0, sizeof(c64_t));
     sys->valid = true;
+    sys->ntsc = desc->ntsc;     // BREADBIN PATCH
+    sys->freq_hz = desc->ntsc ? C64_NTSC_FREQUENCY : C64_FREQUENCY;
     sys->joystick_type = desc->joystick_type;
     sys->debug = desc->debug;
     sys->audio.callback = desc->audio.callback;
@@ -514,14 +525,15 @@ void c64_init(c64_t* sys, const c64_desc_t* desc) {
         },
         .screen = {
             .x = _C64_SCREEN_X,
-            .y = _C64_SCREEN_Y,
+            .y = desc->ntsc ? _C64_NTSC_SCREEN_Y : _C64_SCREEN_Y,            // BREADBIN PATCH
             .width = _C64_SCREEN_WIDTH,
-            .height = _C64_SCREEN_HEIGHT,
+            .height = desc->ntsc ? _C64_NTSC_SCREEN_HEIGHT : _C64_SCREEN_HEIGHT,  // BREADBIN PATCH
         },
         .user_data = sys,
+        .ntsc = desc->ntsc,     // BREADBIN PATCH
     });
     m6581_init(&sys->sid, &(m6581_desc_t){
-        .tick_hz = C64_FREQUENCY,
+        .tick_hz = (int)sys->freq_hz,     // BREADBIN PATCH
         .sound_hz = _C64_DEFAULT(desc->audio.sample_rate, 44100),
         .magnitude = _C64_DEFAULT(desc->audio.volume, 1.0f),
     });
@@ -1016,7 +1028,7 @@ static void _c64_init_key_map(c64_t* sys) {
 
 uint32_t c64_exec(c64_t* sys, uint32_t micro_seconds) {
     CHIPS_ASSERT(sys && sys->valid);
-    uint32_t num_ticks = clk_us_to_ticks(C64_FREQUENCY, micro_seconds);
+    uint32_t num_ticks = clk_us_to_ticks(sys->freq_hz, micro_seconds);  // BREADBIN PATCH
     uint64_t pins = sys->pins;
     if (0 == sys->debug.callback.func) {
         // run without debug callback

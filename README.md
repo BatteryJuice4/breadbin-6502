@@ -106,7 +106,8 @@ You can also pass `--sysroms <folder>`.
 Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
 
 Command-line options: `[cartridge]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
-`--generic` (ignore built-in/bundled game packs), `--scale N`,
+`--generic` (ignore built-in/bundled game packs), `--scale N`, `--pal` / `--ntsc` (video standard;
+default: the game pack's, else PAL),
 `--frames N` (quit after N frames, for testing). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
 always use the built-in file browser.
 

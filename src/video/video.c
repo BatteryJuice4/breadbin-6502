@@ -9,8 +9,8 @@
 #include <math.h>
 #include <stdint.h>
 
-// Framebuffer upper bound (PAL VIC-II: 504 x 312). Checked at draw time.
-#define VIDEO_MAX_W 512
+// Framebuffer upper bound (VIC-II framebuffer sized for NTSC lines: 520 x 312). Checked at draw time.
+#define VIDEO_MAX_W 528
 #define VIDEO_MAX_H 320
 
 // Default palette: Colodore (colodore.com). Packed as 0xAABBGGRR for RGBA8 upload.

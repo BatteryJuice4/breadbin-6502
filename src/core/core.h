@@ -22,7 +22,7 @@ typedef struct core core_t;
 
 typedef enum {
     CORE_VIDEO_PAL = 0,
-    CORE_VIDEO_NTSC,        // not supported by the current core yet
+    CORE_VIDEO_NTSC,        // 6567R8 timing (65 cycles x 263 lines, 1.0227 MHz)
 } core_video_std_t;
 
 typedef void (*core_audio_fn)(const float* samples, int num_samples, void* user_data);

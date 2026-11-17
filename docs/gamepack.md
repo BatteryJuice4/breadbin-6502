@@ -35,7 +35,7 @@ Use original artwork only. Don't ship the game's box art, logos or screenshots.
 id      = "mygame"         # required: a-z 0-9 - _ (1-63 chars), used for the settings folder
 title   = "My Game"        # required: window title and menus
 media   = "cartridge"      # "cartridge" (default) | "disk" | "tape" (disk/tape: not yet)
-video_standard = "PAL"     # "PAL" (default) | "NTSC" (NTSC timing isn't emulated yet)
+video_standard = "PAL"     # "PAL" (default) | "NTSC" (6567R8 timing, 59.83 fps); --pal/--ntsc override it
 sid_model = "6581"         # "6581" (default) | "8580" (only the 6581 is emulated so far)
 joystick_port = 2          # default joystick port (1 or 2)
 min_launcher_version = "0.1.0"   # refuse to start on older launchers

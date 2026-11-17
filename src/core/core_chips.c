@@ -10,7 +10,7 @@
 #include "chips/chips_common.h"
 #include "chips/m6502.h"
 #include "chips/m6526.h"
-#include "chips/m6569.h"
+#include "core/patched/m6569.h" // chips m6569.h + NTSC (6567R8) timing (see header)
 #include "chips/m6581.h"
 #include "chips/kbd.h"
 #include "chips/mem.h"
@@ -31,19 +31,28 @@
 #define CORE_PAL_DISPLAY_Y 36
 // PAL C64 pixel aspect ratio (7.882 MHz dot clock vs. PAL square-pixel 7.375 MHz)
 #define CORE_PAL_PIXEL_ASPECT 0.9365f
+// NTSC: 65 cycles per line * 263 lines (6567R8)
+#define CORE_NTSC_CYCLES_PER_FRAME (M6569_NTSC_HTOTAL * M6569_NTSC_VTOTAL)
+// display window top is raster line 51, the NTSC beam starts at line 13 and the
+// visible area 10 lines below that (see the patched c64.h)
+#define CORE_NTSC_DISPLAY_X 32
+#define CORE_NTSC_DISPLAY_Y 28
+// NTSC C64 pixel aspect ratio (8.18 MHz dot clock vs. NTSC square-pixel 6.136 MHz)
+#define CORE_NTSC_PIXEL_ASPECT 0.75f
 
 struct core {
     c64_t sys;
     uint64_t frame_count;
     uint32_t cycles_per_frame;
     uint32_t frame_us;          // fixed per-frame time fed to the keyboard helper
+    bool ntsc;
     uint8_t joy[2];
     bool has_cart;
 };
 
 core_t* core_create(const core_desc_t* desc) {
-    if (!desc || desc->video_std != CORE_VIDEO_PAL) {
-        return NULL;    // NTSC needs a 6567 VIC-II model, not in chips yet
+    if (!desc || (desc->video_std != CORE_VIDEO_PAL && desc->video_std != CORE_VIDEO_NTSC)) {
+        return NULL;
     }
     if (!desc->rom_kernal || desc->rom_kernal_size != 0x2000 ||
         !desc->rom_basic || desc->rom_basic_size != 0x2000 ||
@@ -54,13 +63,16 @@ core_t* core_create(const core_desc_t* desc) {
     if (!core) {
         return NULL;
     }
-    core->cycles_per_frame = CORE_PAL_CYCLES_PER_FRAME;
-    core->frame_us = (uint32_t)(((uint64_t)core->cycles_per_frame * 1000000u) / C64_FREQUENCY);
+    core->ntsc = desc->video_std == CORE_VIDEO_NTSC;
+    core->cycles_per_frame = core->ntsc ? CORE_NTSC_CYCLES_PER_FRAME : CORE_PAL_CYCLES_PER_FRAME;
+    const uint32_t freq = core->ntsc ? C64_NTSC_FREQUENCY : C64_FREQUENCY;
+    core->frame_us = (uint32_t)(((uint64_t)core->cycles_per_frame * 1000000u) / freq);
 
     c64_init(&core->sys, &(c64_desc_t){
         // NONE: keys always go to the keyboard matrix. Joysticks are driven only
         // through c64_joystick(), whose masks chips applies regardless of type.
         .joystick_type = C64_JOYSTICKTYPE_NONE,
+        .ntsc = core->ntsc,
         .audio = {
             .callback = { .func = desc->audio_fn, .user_data = desc->audio_user_data },
             .sample_rate = desc->audio_sample_rate > 0 ? desc->audio_sample_rate : 44100,
@@ -110,7 +122,7 @@ uint64_t core_frame_count(const core_t* core) {
 }
 
 double core_frame_rate(const core_t* core) {
-    return (double)C64_FREQUENCY / (double)core->cycles_per_frame;
+    return (double)core->sys.freq_hz / (double)core->cycles_per_frame;
 }
 
 uint32_t core_cycles_per_frame(const core_t* core) {
@@ -127,11 +139,11 @@ core_video_t core_video(const core_t* core) {
         .screen_y = info.screen.y,
         .screen_w = info.screen.width,
         .screen_h = info.screen.height,
-        .display_x = info.screen.x + CORE_PAL_DISPLAY_X,
-        .display_y = info.screen.y + CORE_PAL_DISPLAY_Y,
+        .display_x = info.screen.x + (core->ntsc ? CORE_NTSC_DISPLAY_X : CORE_PAL_DISPLAY_X),
+        .display_y = info.screen.y + (core->ntsc ? CORE_NTSC_DISPLAY_Y : CORE_PAL_DISPLAY_Y),
         .display_w = 320,
         .display_h = 200,
-        .pixel_aspect = CORE_PAL_PIXEL_ASPECT,
+        .pixel_aspect = core->ntsc ? CORE_NTSC_PIXEL_ASPECT : CORE_PAL_PIXEL_ASPECT,
     };
 }
 
