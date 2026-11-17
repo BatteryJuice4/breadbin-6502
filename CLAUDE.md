@@ -16,8 +16,17 @@ Repo-specific rules:
   are marked `BREADBIN PATCH`. Everything else goes through `src/core/core.h`.
 - Disk/tape media live in `src/media/` (pure C on top of `core.h`); `tests/test_media.c`
   builds its own test disks and tapes, so no third-party images are needed.
+- Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS
+  patches, `modset` = validation, load order, cheats, install). Format: `docs/mods.md`.
+  Packages are untrusted input: keep the size caps and the data-files-only rule.
+- Diagnostic replays live in `src/replay/`. Every emulated frame in the app goes
+  through `step_frame()` in `main.c` (live or replayed input, cheats, autostart,
+  fingerprint), so anything that affects emulation must happen there or at game
+  load, never elsewhere, or replays stop matching. `--record FILE --headless --frames N`
+  and `--replay FILE --verify` make and check replays without a window.
 - **Determinism:** the core runs a fixed cycle count per frame. Never feed wall-clock
-  time or unseeded randomness into emulation. `tests/test_core.c` checks this.
+  time or unseeded randomness into emulation. `tests/test_core.c` and
+  `tests/test_replay.c` check this.
 - Vendored code goes in `external/` with its license, and is recorded in
   `external/VENDORED.md` (upstream commit). Don't edit vendored files. Work around
   them in our code and note it (see the `'0'` keymap workaround in `core_chips.c`).

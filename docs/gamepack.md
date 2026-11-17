@@ -13,7 +13,8 @@ A game pack never contains the game itself. Players always supply their own dump
 mygame/
 ├── game.toml     required
 ├── icon.png      optional: window/taskbar icon (square, up to 512x512)
-└── banner.png    optional: shown on the Select ROM screen and in the menu (up to 2048x2048)
+├── banner.png    optional: shown on the Select ROM screen and in the menu (up to 2048x2048)
+└── mods/         optional: bundled mods (.c64mod files or unpacked mod folders), see mods.md
 ```
 
 Use original artwork only. Don't ship the game's box art, logos or screenshots.
@@ -27,7 +28,12 @@ Use original artwork only. Don't ship the game's box art, logos or screenshots.
 3. A `gamepack/` folder next to the executable.
 
 `--generic` skips 2 and 3. Each game keeps its own settings in
-`<config dir>/games/<id>/settings.toml`.
+`<config dir>/games/<id>/settings.toml`, installed mods in `<config dir>/mods/<id>/` and
+diagnostic replays in `<config dir>/replays/<id>/`.
+
+Bundled mods are only found for folder packs (1 and 3), not for packs built into the
+executable. They're off until the player enables them; an installed mod with the same
+id replaces the bundled one.
 
 ## game.toml
 

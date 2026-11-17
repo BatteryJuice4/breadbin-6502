@@ -9,10 +9,11 @@ games are published as separate repos that pin a Breadbin-6502 release.
 
 **No game ROMs are included.** You supply your own dumps.
 
-> Status: **Phase 4b (disk & tape).** Runs standard 8K, 16K and Ultimax cartridges
+> Status: **Phase 6 (mods v1).** Runs standard 8K, 16K and Ultimax cartridges
 > (`.crt`, or raw `.bin` at $8000), disks (`.d64`, `.prg`) and tapes (`.tap`, `.t64`),
-> on PAL or NTSC machines, with a Select-ROM screen, an in-game menu, saved settings and
-> game packs (branding, default controls, ROM verification). Mods come next.
+> on PAL or NTSC machines, with a Select-ROM screen, an in-game menu, saved settings,
+> game packs (branding, default controls, ROM verification), mods (patches, cheats,
+> palettes) and diagnostic replays.
 
 ## Building
 
@@ -44,10 +45,18 @@ Press **Esc** during play to pause and open the menu:
 - **ROM:** the current game, its type and SHA-1, Select ROM…, and Swap disk/tape… for
   games on several disks or tapes
 - **Video:** window scale (applies on the next launch), fullscreen, integer scaling,
-  aspect correction, border crop, sharp or smooth filtering
+  aspect correction, border crop, sharp or smooth filtering, colour palette
+  (Colodore, Pepto, or one from a palette mod)
 - **Audio:** volume, mute, latency
 - **Input:** joystick port (1 or 2), key bindings for the joystick (two keys per
   direction; click to rebind, right-click to clear) and the menu key
+- **Mods:** install `.c64mod` packages, switch mods on and off, set their load order;
+  a mod that can't run says why (see [Mods](#mods))
+
+The ROM tab can also **record a diagnostic replay**: it restarts the game and records
+your input and a fingerprint of the machine after every frame. Playing it back
+(`--replay FILE`) shows exactly where behaviour changed, so a replay file is the most
+useful thing to attach to a bug report.
 
 Settings are saved per user and per game (`<id>` is the game pack's id, or `generic`):
 
@@ -58,6 +67,21 @@ Settings are saved per user and per game (`<id>` is the game pack's id, or `gene
 | macOS | `~/Library/Application Support/breadbin-6502/games/<id>/settings.toml` |
 
 A game passed on the command line is played without being remembered.
+
+## Mods
+
+Mods are `.c64mod` files (a zip with a `mod.toml` and data files; never native code).
+Install them from the **Mods** tab; they're copied to `<config dir>/mods/<id>/`. A
+folder game pack can also bring its own in its `mods/` folder. Mods are off until you
+enable them, and each one is checked before it runs: the right game, a new enough
+launcher, your dump's SHA-1 (if the mod asks for one), its dependencies and conflicts.
+
+- **Patch** mods change the game data in memory when it loads (inline byte patches,
+  IPS or BPS files). Your ROM file is never changed.
+- **Cheat** mods write to RAM before every frame (e.g. lock the lives counter) or once.
+- **Palette** mods add a colour palette to the Video tab.
+
+How to make one: [docs/mods.md](docs/mods.md).
 
 ## Game packs
 
@@ -117,7 +141,10 @@ Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
 Command-line options: `[game file]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
 `--generic` (ignore built-in/bundled game packs), `--scale N`, `--pal` / `--ntsc` (video standard;
 default: the game pack's, else PAL),
-`--frames N` (quit after N frames, for testing). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
+`--frames N` (quit after N frames, for testing), `--replay FILE` (play a diagnostic replay
+and compare every frame), `--verify` (with `--replay`: no window, exit code 0 if every frame
+matched, 1 if not), `--record FILE` and `--headless` (record a replay without a window,
+for regression tests). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
 always use the built-in file browser.
 
 ## License
