@@ -91,6 +91,11 @@ bb_embed_optional(${BB_GEN_DIR}/gamepack_banner.c bb_gamepack_banner "${BB_GAMEP
 add_library(bb_core STATIC
     src/core/core_chips.c
     src/core/cart.c
+    src/media/media.c
+    src/media/d64.c
+    src/media/t64.c
+    src/media/tap.c
+    src/media/autostart.c
     src/rom/sysroms.c
     src/rom/sha1.c
     src/rom/rom_file.c
@@ -199,4 +204,9 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_sha1 PRIVATE bb_core)
     target_compile_options(test_sha1 PRIVATE ${BB_WARNINGS})
     add_test(NAME sha1 COMMAND test_sha1)
+
+    add_executable(test_media tests/test_media.c)
+    target_link_libraries(test_media PRIVATE bb_core)
+    target_compile_options(test_media PRIVATE ${BB_WARNINGS})
+    add_test(NAME media COMMAND test_media)
 endif()
