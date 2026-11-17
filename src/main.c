@@ -828,6 +828,7 @@ static void handle_ui_actions(void) {
         char path[SETTINGS_PATH_MAX];
         snprintf(path, sizeof(path), "%s", u->rom_path);
         load_rom(path, LOAD_CLI);   // already accepted: no prompt, nothing to remember
+        save_settings();            // this leaves the menu, like Resume
     }
     if (u->act_no_cart) start_without_cart();
     if (u->act_load_path) {
