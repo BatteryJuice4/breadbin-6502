@@ -3,13 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-// stb_image (public domain / MIT), PNG only, no stdio: data comes from memory.
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_NO_STDIO
-#define STBI_NO_LINEAR
-#define STBI_NO_HDR
-#define STBI_MAX_DIMENSIONS 4096    // game packs are untrusted input: cap memory use
+// stb_image is implemented once in util/stb_impl.c (PNG only, no stdio, 4096 px cap).
 #include "stb_image.h"
 
 bool image_decode_png(const uint8_t* data, size_t size, int max_dim, image_t* out, char* err, size_t err_size) {

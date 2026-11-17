@@ -105,12 +105,18 @@ add_library(bb_core STATIC
     src/gamepack/gamepack.c
     src/gamepack/gamepack_load.c
     src/input/keynames.c
+    src/util/crc32.c
+    src/util/stb_impl.c
+    src/mods/zip.c
+    src/mods/mod.c
+    src/mods/patch.c
+    src/mods/modset.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
     ${BB_GEN_DIR}/openroms_chargen.c
 )
 target_include_directories(bb_core PUBLIC src)
-target_link_libraries(bb_core PRIVATE bb_external_chips bb_external_sokol)
+target_link_libraries(bb_core PRIVATE bb_external_chips bb_external_sokol bb_external_stb)
 target_link_libraries(bb_core PUBLIC bb_external_toml)
 target_compile_options(bb_core PRIVATE ${BB_WARNINGS})
 if(NOT MSVC)
@@ -204,6 +210,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_sha1 PRIVATE bb_core)
     target_compile_options(test_sha1 PRIVATE ${BB_WARNINGS})
     add_test(NAME sha1 COMMAND test_sha1)
+
+    add_executable(test_mods tests/test_mods.c)
+    target_link_libraries(test_mods PRIVATE bb_core)
+    target_compile_options(test_mods PRIVATE ${BB_WARNINGS})
+    add_test(NAME mods COMMAND test_mods)
 
     add_executable(test_media tests/test_media.c)
     target_link_libraries(test_media PRIVATE bb_core)
