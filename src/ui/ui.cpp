@@ -306,6 +306,31 @@ void binding_button(ui_state_t* st, int action, int slot, int keycode) {
     }
 }
 
+void replay_section(ui_state_t* st) {
+    ImGui::SeparatorText("Diagnostic replay");
+    const float fps = st->replay_fps > 0.0f ? st->replay_fps : 50.0f;
+    if (st->replay_recording) {
+        const unsigned s = (unsigned)((float)st->replay_frame / fps);
+        ImGui::TextColored(kErrorColor, "Recording: %u:%02u (%u frames)", s / 60, s % 60, st->replay_frame);
+        if (ImGui::Button("Stop recording and save")) st->act_replay_stop = true;
+        dim_text("Resetting, swapping media, loading another game or changing mods also stops the recording.");
+    } else if (st->replay_playing) {
+        ImGui::Text("Playing a replay: frame %u of %u", st->replay_frame, st->replay_total);
+        if (ImGui::Button("Stop the replay")) st->act_replay_stop = true;
+    } else {
+        ImGui::BeginDisabled(!st->cart_loaded);
+        if (ImGui::Button("Record a replay")) st->act_replay_record = true;
+        ImGui::EndDisabled();
+        dim_text("Restarts the game and records your input, so a problem can be reproduced exactly. "
+                 "Attach the replay file to a bug report.");
+    }
+    if (st->replay_message[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, st->replay_message_is_error ? kErrorColor : kOkColor);
+        ImGui::TextWrapped("%s", st->replay_message);
+        ImGui::PopStyleColor();
+    }
+}
+
 void tab_rom(ui_state_t* st) {
     if (st->has_pack) {
         draw_banner(ImGui::GetIO().DisplaySize.y * 0.15f);
@@ -338,6 +363,7 @@ void tab_rom(ui_state_t* st) {
     }
     ImGui::Spacing();
     draw_message(st);
+    replay_section(st);
 }
 
 // Small centered notice while a disk or tape game loads at warp speed.

@@ -150,6 +150,10 @@ int core_add_watch(core_t* core, uint16_t pc);
 uint32_t core_watch_hits(const core_t* core, int id);
 void core_clear_watches(core_t* core);
 
+// Fast 64-bit hash of the machine state that matters for replays: 64 KB RAM,
+// colour RAM and CPU registers. Identical runs give identical values.
+uint64_t core_fingerprint(core_t* core);
+
 // Raw 64 KB RAM access (not the CPU's banked view). For tests, cheats, fingerprints.
 uint8_t core_ram_read(const core_t* core, uint16_t addr);
 void core_ram_write(core_t* core, uint16_t addr, uint8_t value);

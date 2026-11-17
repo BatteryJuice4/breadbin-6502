@@ -281,6 +281,22 @@ bool core_has_cart(const core_t* core) {
     return core->has_cart;
 }
 
+static uint64_t fnv1a(uint64_t h, const uint8_t* p, size_t n) {
+    for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
+    return h;
+}
+
+uint64_t core_fingerprint(core_t* core) {
+    m6502_t* cpu = &core->sys.cpu;
+    const uint16_t pc = m6502_pc(cpu);
+    const uint8_t regs[] = { (uint8_t)pc, (uint8_t)(pc >> 8), m6502_a(cpu), m6502_x(cpu), m6502_y(cpu),
+                             m6502_s(cpu), m6502_p(cpu) };
+    uint64_t h = 0xCBF29CE484222325ull;
+    h = fnv1a(h, core->sys.ram, sizeof(core->sys.ram));
+    h = fnv1a(h, core->sys.color_ram, sizeof(core->sys.color_ram));
+    return fnv1a(h, regs, sizeof(regs));
+}
+
 uint8_t core_ram_read(const core_t* core, uint16_t addr) {
     return core->sys.ram[addr];
 }

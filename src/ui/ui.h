@@ -92,6 +92,13 @@ typedef struct {
     int mod_index;
     bool act_mods_rescan;
     bool act_mods_restart;      // reload the game so patch mods apply
+    // diagnostic replays
+    bool replay_recording, replay_playing;
+    unsigned replay_frame, replay_total;    // frames recorded / played, total when playing
+    float replay_fps;
+    char replay_message[SETTINGS_PATH_MAX + 256];
+    bool replay_message_is_error;
+    bool act_replay_record, act_replay_stop;
     // key capture for rebinding
     int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY
     int capture_slot;

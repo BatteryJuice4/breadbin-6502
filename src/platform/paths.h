@@ -23,6 +23,9 @@ bool platform_settings_path(const char* game_id, char* out, size_t out_size);
 // <config dir>/mods/<game_id> (installed mods)
 bool platform_mods_dir(const char* game_id, char* out, size_t out_size);
 
+// <config dir>/replays/<game_id> (diagnostic replays)
+bool platform_replays_dir(const char* game_id, char* out, size_t out_size);
+
 // Create all missing parent directories of `path`.
 bool platform_make_parent_dirs(const char* path);
 

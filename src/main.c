@@ -19,6 +19,8 @@
 #include "media/media.h"
 #include "media/tap.h"
 #include "mods/modset.h"
+#include "replay/replay.h"
+#include "rom/sha1.h"
 #include "platform/filedialog.h"
 #include "platform/paths.h"
 #include "rom/rom_file.h"
@@ -36,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifndef BB_VERSION
 #define BB_VERSION "dev"
@@ -80,6 +83,15 @@ static struct {
     char mods_bundled[SETTINGS_PATH_MAX];   // the folder game pack's mods/ ("" = none)
     char patch_sig[2048];                   // patch mods applied to the loaded game
     bool cheats_first;                      // next played frame is the first since load/reset/change
+    replay_t rec;                           // replay being recorded
+    bool recording;
+    replay_t play;                          // replay being played back
+    replay_player_t player;
+    bool playing;
+    const char* cli_replay;                 // --replay FILE
+    bool cli_verify;                        // --verify: play the replay without a window, then exit
+    const char* cli_record;                 // --record FILE: record from the start, save there on exit
+    bool cli_headless;                      // --headless: run --frames N frames without a window, then exit
     double frame_period;
     double accum;
     long quit_after_frames;             // --frames N (0 = run until closed)
@@ -254,7 +266,172 @@ static void select_mod_file(void) {
     app.accum = 0.0;
 }
 
-// ---- cartridge -------------------------------------------------------------
+// ---- diagnostic replays ----------------------------------------------------
+
+static void replay_msg(bool is_error, const char* text) {
+    snprintf(app.ui.replay_message, sizeof(app.ui.replay_message), "%s", text);
+    app.ui.replay_message_is_error = is_error;
+    fprintf(stderr, "breadbin-6502: %s\n", text);
+}
+
+static void stop_recording(const char* why) {
+    if (!app.recording) return;
+    app.recording = false;
+    app.ui.replay_recording = false;
+    char dir[SETTINGS_PATH_MAX], path[SETTINGS_PATH_MAX + 64], err[512], msg[SETTINGS_PATH_MAX + 256];
+    if (app.rec.count == 0) {
+        replay_free(&app.rec);
+        return;
+    }
+    if (app.cli_record) {
+        snprintf(path, sizeof(path), "%s", app.cli_record);
+        app.cli_record = NULL;      // only the first recording goes there
+    } else if (!platform_replays_dir(game_id(), dir, sizeof(dir))) {
+        replay_msg(true, "The replay wasn't saved: there's no config folder.");
+        replay_free(&app.rec);
+        return;
+    } else {
+        // wall-clock time only names the file; it never reaches the emulation
+        const time_t now = time(NULL);
+        const struct tm* tm = localtime(&now);
+        char stamp[32] = "replay";
+        if (tm) strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", tm);
+        snprintf(path, sizeof(path), "%s%creplay-%s.bbreplay", dir, platform_path_sep(), stamp);
+    }
+    if (replay_save(&app.rec, path, err, sizeof(err))) {
+        snprintf(msg, sizeof(msg), "%sReplay saved (%u frames): %s", why ? why : "", app.rec.count, path);
+        replay_msg(false, msg);
+    } else {
+        snprintf(msg, sizeof(msg), "The replay wasn't saved: %s", err);
+        replay_msg(true, msg);
+    }
+    replay_free(&app.rec);
+}
+
+static void finish_playback(void) {
+    if (!app.playing) return;
+    app.playing = false;
+    app.ui.replay_playing = false;
+    char msg[256];
+    const replay_player_t* p = &app.player;
+    if (p->diverged) {
+        snprintf(msg, sizeof(msg), "The replay went differently from frame %u on (of %u). Something changed since it was recorded.",
+                 p->diverged_at, app.play.count);
+    } else if (p->pos < app.play.count) {
+        snprintf(msg, sizeof(msg), "Replay stopped at frame %u of %u; all frames so far matched.", p->pos, app.play.count);
+    } else {
+        snprintf(msg, sizeof(msg), "Replay finished: all %u frames matched.", app.play.count);
+    }
+    replay_msg(p->diverged, msg);
+}
+
+// Something that a replay can't contain happened (reset, other game, mods...).
+static void interrupt_replay(const char* what) {
+    if (app.recording) {
+        char why[128];
+        snprintf(why, sizeof(why), "Recording stopped (%s). ", what);
+        stop_recording(why);
+    }
+    finish_playback();
+}
+
+static void start_recording(void) {
+    replay_header_t h = { 0 };
+    snprintf(h.launcher_version, sizeof(h.launcher_version), "%s", BB_VERSION);
+    snprintf(h.game_id, sizeof(h.game_id), "%s", game_id());
+    snprintf(h.rom_name, sizeof(h.rom_name), "%s", app.ui.rom_name);
+    snprintf(h.rom_sha1, sizeof(h.rom_sha1), "%s", app.ui.rom_sha1);
+    snprintf(h.media, sizeof(h.media), "%s", app.media.fmt != MEDIA_FMT_UNKNOWN ? media_format_name(app.media.fmt) + 1 : "cartridge");
+    h.ntsc = core_frame_rate(app.core) > 55.0;
+    sha1_hex(app.roms.kernal, sizeof(app.roms.kernal), h.sysrom_sha1[0]);
+    sha1_hex(app.roms.basic, sizeof(app.roms.basic), h.sysrom_sha1[1]);
+    sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), h.sysrom_sha1[2]);
+    for (int i = 0; i < app.mods.order_count && h.mod_count < REPLAY_MAX_MODS; i++) {
+        const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
+        if (e->usable) snprintf(h.mods[h.mod_count++], sizeof(h.mods[0]), "%s@%s", e->mod.id, e->sha1);
+    }
+    replay_init(&app.rec, &h);
+    app.recording = true;
+    app.ui.replay_recording = true;
+    app.ui.replay_frame = 0;
+    app.ui.replay_message[0] = 0;
+    fprintf(stderr, "breadbin-6502: recording a replay\n");
+}
+
+// --replay: use the replay's video standard and mods (this session only).
+static bool prepare_playback(void) {
+    char err[512];
+    if (!replay_load(app.cli_replay, &app.play, err, sizeof(err))) {
+        fprintf(stderr, "breadbin-6502: %s: %s\n", app.cli_replay, err);
+        snprintf(app.ui.replay_message, sizeof(app.ui.replay_message), "Can't play the replay: %s", err);
+        app.ui.replay_message_is_error = true;
+        return false;
+    }
+    const replay_header_t* h = &app.play.header;
+    fprintf(stderr, "breadbin-6502: replay of \"%s\" (%s, %u frames, launcher %s)\n",
+            h->rom_name, h->ntsc ? "NTSC" : "PAL", app.play.count, h->launcher_version);
+    if (!app.cli_video_std) app.cli_video_std = h->ntsc ? 2 : 1;
+    return true;
+}
+
+// Enable exactly the replay's mods; note any that are missing or different.
+static void use_replay_mods(void) {
+    const replay_header_t* h = &app.play.header;
+    char ids[REPLAY_MAX_MODS][MOD_ID_MAX];
+    char notes[1024] = "";
+    for (int i = 0; i < h->mod_count; i++) {
+        char id[MOD_ID_MAX] = "";
+        const char* at = strchr(h->mods[i], '@');
+        const int len = at ? (int)(at - h->mods[i]) : (int)strlen(h->mods[i]);
+        snprintf(id, sizeof(id), "%.*s", len < MOD_ID_MAX ? len : MOD_ID_MAX - 1, h->mods[i]);
+        snprintf(ids[i], MOD_ID_MAX, "%s", id);
+        const int k = modset_find(&app.mods, id);
+        const size_t nl = strlen(notes);
+        if (k < 0) snprintf(notes + nl, sizeof(notes) - nl, " Mod \"%s\" isn't installed.", id);
+        else if (at && strcmp(app.mods.entries[k]->sha1, at + 1) != 0) snprintf(notes + nl, sizeof(notes) - nl, " Mod \"%s\" is a different version.", id);
+    }
+    modset_set_enabled(&app.mods, (const char (*)[MOD_ID_MAX])ids, h->mod_count);
+    if (notes[0]) {
+        char msg[1200];
+        snprintf(msg, sizeof(msg), "The replay may not match:%s", notes);
+        replay_msg(true, msg);
+    }
+}
+
+static void check_replay_environment(void) {
+    const replay_header_t* h = &app.play.header;
+    char s[3][41];
+    sha1_hex(app.roms.kernal, sizeof(app.roms.kernal), s[0]);
+    sha1_hex(app.roms.basic, sizeof(app.roms.basic), s[1]);
+    sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), s[2]);
+    if (strcmp(s[0], h->sysrom_sha1[0]) || strcmp(s[1], h->sysrom_sha1[1]) || strcmp(s[2], h->sysrom_sha1[2])) {
+        fprintf(stderr, "breadbin-6502: warning: the replay was recorded with different system ROMs\n");
+    }
+    if (strcmp(h->launcher_version, BB_VERSION) != 0) {
+        fprintf(stderr, "breadbin-6502: note: the replay was recorded with launcher %s (this is %s)\n", h->launcher_version, BB_VERSION);
+    }
+}
+
+// The game is loaded: start feeding the replay (false if it's a different game).
+static bool start_playback(void) {
+    const replay_header_t* h = &app.play.header;
+    char msg[512];
+    if (!app.ui.cart_loaded) {
+        snprintf(msg, sizeof(msg), "Load \"%s\" to play this replay (pass the game file after --replay FILE).", h->rom_name);
+        replay_msg(true, msg);
+        return false;
+    }
+    if (strcmp(app.ui.rom_sha1, h->rom_sha1) != 0) {
+        snprintf(msg, sizeof(msg), "This replay is for \"%s\" (SHA-1 %s), not the loaded game.", h->rom_name, h->rom_sha1);
+        replay_msg(true, msg);
+        return false;
+    }
+    replay_player_init(&app.player, &app.play);
+    app.playing = true;
+    app.ui.replay_playing = true;
+    app.ui.replay_total = app.play.count;
+    return true;
+}
 
 static void set_message(bool is_error, const char* fmt, const char* arg) {
     snprintf(app.ui.message, sizeof(app.ui.message), fmt, arg);
@@ -376,6 +553,7 @@ static void remember_rom(const char* path) {
 }
 
 static void insert_cart(const cart_t* cart, const char* path, rom_status_t status, bool remember) {
+    interrupt_replay("another game was loaded");
     eject_media();
     core_insert_cart(app.core, cart);
     ui_state_t* u = &app.ui;
@@ -401,6 +579,7 @@ static void insert_cart(const cart_t* cart, const char* path, rom_status_t statu
 }
 
 static void insert_media(media_image_t* img, const char* path, rom_status_t status, bool remember) {
+    interrupt_replay("another game was loaded");
     eject_media();
     if (core_has_cart(app.core)) core_remove_cart(app.core);
     app.media = *img;                   // takes over the image's buffers
@@ -496,6 +675,7 @@ static void swap_media(const char* path) {
         set_message(true, "%s", err);
         return;
     }
+    interrupt_replay("the disk or tape was swapped");
     media_close(&app.media);
     app.media = img;
     core_set_file_loader(app.core, media_serve, &app.media);
@@ -548,6 +728,7 @@ static bool load_cart(const char* path, load_mode_t mode) {
 }
 
 static void start_without_cart(void) {
+    interrupt_replay("the cartridge was removed");
     eject_media();
     core_remove_cart(app.core);
     app.ui.cart_loaded = false;
@@ -611,11 +792,13 @@ static void handle_ui_actions(void) {
         save_settings();
     }
     if (u->act_reset) {
+        interrupt_replay("the machine was reset");
         if (app.media.fmt != MEDIA_FMT_UNKNOWN) boot_media(); else core_reset(app.core);
         app.cheats_first = true;
         enter_game();
     }
     if (u->act_mods_changed) {
+        interrupt_replay("mods changed");
         save_mod_order();
         evaluate_mods();
     }
@@ -631,6 +814,15 @@ static void handle_ui_actions(void) {
             save_mod_order();
             scan_mods();
         }
+    }
+    if (u->act_replay_record && u->cart_loaded && !app.recording && !app.playing) {
+        char path[SETTINGS_PATH_MAX];
+        snprintf(path, sizeof(path), "%s", u->rom_path);
+        if (load_rom(path, LOAD_CLI)) start_recording();     // restart, then record from the first frame
+    }
+    if (u->act_replay_stop) {
+        if (app.recording) stop_recording(NULL);
+        finish_playback();
     }
     if (u->act_mods_restart && u->cart_loaded) {
         char path[SETTINGS_PATH_MAX];
@@ -653,6 +845,7 @@ static void handle_ui_actions(void) {
     if (u->act_select_rom) select_rom(false);
     if (u->act_swap_media && app.media.fmt != MEDIA_FMT_UNKNOWN) select_rom(true);
     if (u->act_quit) {
+        stop_recording(NULL);
         save_settings();
         sapp_request_quit();
     }
@@ -661,6 +854,7 @@ static void handle_ui_actions(void) {
     u->act_confirm_play = u->act_confirm_cancel = u->act_swap_media = false;
     u->act_mods_changed = u->act_mods_rescan = u->act_mod_install = u->act_mod_install_path = false;
     u->act_mod_uninstall = u->act_mods_restart = false;
+    u->act_replay_record = u->act_replay_stop = false;
 }
 
 // ---- sokol callbacks -------------------------------------------------------
@@ -679,6 +873,50 @@ static void init_cb(void) {
     update_title();
 }
 
+// Disk/tape loading is over: from now on frames are shown, heard and played.
+static void end_boot(void) {
+    app.booting = false;
+    app.ui.loading = false;
+    app.accum = 0.0;
+    app.cheats_first = true;
+    input_release_all();
+    fprintf(stderr, "breadbin-6502: loaded after %.1f s of emulated time\n", app.ui.loading_seconds);
+}
+
+// One emulated frame and everything that belongs to it: input (live or from a
+// replay; none while loading), cheat mods, the frame, autostart, replay bookkeeping.
+static void step_frame(void) {
+    replay_input_t in;
+    memset(&in, 0, sizeof(in));
+    if (app.playing) replay_player_input(&app.player, &in);
+    else if (!app.booting) input_collect(&in);
+    replay_input_apply(app.core, &in);
+    if (!app.booting) {
+        modset_apply_cheats(&app.mods, app.core, app.cheats_first);
+        app.cheats_first = false;
+    }
+    core_run_frame(app.core);
+    if (app.booting) {
+        autostart_frame(&app.boot, app.core);
+        app.ui.loading_seconds = (float)((double)app.boot.frames / core_frame_rate(app.core));
+        if (!autostart_loading(&app.boot)) end_boot();
+    }
+    if (app.recording || app.playing) {
+        const uint64_t fp = core_fingerprint(app.core);
+        if (app.recording) {
+            if (replay_add(&app.rec, &in, fp)) app.ui.replay_frame = app.rec.count;
+            else stop_recording("The replay reached its maximum length. ");
+        }
+        if (app.playing) {
+            if (!replay_player_check(&app.player, fp) && app.player.diverged_at + 1 == app.player.pos) {
+                fprintf(stderr, "breadbin-6502: replay diverged at frame %u\n", app.player.diverged_at);
+            }
+            app.ui.replay_frame = app.player.pos;
+            if (replay_player_done(&app.player)) finish_playback();
+        }
+    }
+}
+
 static void frame_cb(void) {
     // a window manager may toggle fullscreen behind our back
     if (sapp_is_fullscreen() != app.settings.video.fullscreen) {
@@ -694,27 +932,14 @@ static void frame_cb(void) {
         // Warp: as many frames as fit in the budget, no input, no sound.
         const uint64_t t0 = stm_now();
         do {
-            core_run_frame(app.core);
-            autostart_frame(&app.boot, app.core);
-        } while (autostart_loading(&app.boot) && stm_ms(stm_since(t0)) < BB_WARP_BUDGET_MS);
-        app.ui.loading_seconds = (float)((double)app.boot.frames / core_frame_rate(app.core));
-        if (!autostart_loading(&app.boot)) {
-            app.booting = false;
-            app.ui.loading = false;
-            app.accum = 0.0;
-            app.cheats_first = true;
-            input_release_all();
-            fprintf(stderr, "breadbin-6502: loaded after %.1f s of emulated time\n", app.ui.loading_seconds);
-        }
+            step_frame();
+        } while (app.booting && stm_ms(stm_since(t0)) < BB_WARP_BUDGET_MS);
     } else if (playing) {
         app.accum += sapp_frame_duration();
         if (app.accum > BB_MAX_ACCUM_SEC) app.accum = BB_MAX_ACCUM_SEC;
         int n = 0;
         while (app.accum >= app.frame_period && n < BB_MAX_FRAMES_PER_TICK) {
-            input_apply(app.core);
-            modset_apply_cheats(&app.mods, app.core, app.cheats_first);
-            app.cheats_first = false;
-            core_run_frame(app.core);
+            step_frame();
             app.accum -= app.frame_period;
             n++;
         }
@@ -765,6 +990,8 @@ static void event_cb(const sapp_event* ev) {
 }
 
 static void cleanup_cb(void) {
+    stop_recording(NULL);   // closing the window keeps what was recorded
+    replay_free(&app.play);
     save_settings();
     ui_shutdown();
     eject_media();
@@ -781,8 +1008,8 @@ static void cleanup_cb(void) {
 static void usage(void) {
     fprintf(stderr,
         "Breadbin-6502 " BB_VERSION "\n"
-        "usage: breadbin-6502 [options] [cartridge.crt|cartridge.bin]\n"
-        "  A cartridge given here is played without being remembered. Use the\n"
+        "usage: breadbin-6502 [options] [game file]\n"
+        "  A game given here is played without being remembered. Use the\n"
         "  launcher's Select ROM (or drag a file onto the window) to remember one.\n"
         "  --sysroms DIR     load real C64 system ROMs (kernal.rom, basic.rom, chargen.rom) from DIR\n"
         "                    default: <config dir>/roms/system, falling back to the bundled Open ROMs\n"
@@ -791,7 +1018,14 @@ static void usage(void) {
         "  --generic         ignore built-in and bundled game packs (generic mode)\n"
         "  --scale N         window scale for this launch (1-8)\n"
         "  --pal, --ntsc     video standard (default: the game pack's, else PAL)\n"
-        "  --frames N        quit after N displayed frames (testing)\n");
+        "  --frames N        quit after N displayed frames (testing)\n"
+        "  --replay FILE     play a diagnostic replay (the game file, or the remembered one,\n"
+        "                    must be the game it was recorded with) and compare every frame\n"
+        "  --verify          with --replay: play it without a window, print the result and\n"
+        "                    exit (0 = every frame matched, 1 = it went differently)\n"
+        "  --record FILE     record a replay from the start of the game, saved to FILE on exit\n"
+        "  --headless        run --frames N emulated frames without a window or input, then\n"
+        "                    exit (testing; e.g. with --record to make a regression replay)\n");
 }
 
 static bool parse_args(int argc, char* argv[]) {
@@ -806,10 +1040,22 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--ntsc"))          { app.cli_video_std = 2; }
         else if (!strcmp(a, "--scale") && v)    { app.scale_override = atoi(v); i++; }
         else if (!strcmp(a, "--frames") && v)   { app.quit_after_frames = atol(v); i++; }
+        else if (!strcmp(a, "--replay") && v)   { app.cli_replay = v; i++; }
+        else if (!strcmp(a, "--verify"))        { app.cli_verify = true; }
+        else if (!strcmp(a, "--record") && v)   { app.cli_record = v; i++; }
+        else if (!strcmp(a, "--headless"))      { app.cli_headless = true; }
         else if (a[0] != '-' && !app.cli_cart)  { app.cli_cart = a; }
         else { usage(); return false; }
     }
     if (app.scale_override < 0 || app.scale_override > 8) app.scale_override = 0;
+    if (app.cli_verify && !app.cli_replay) {
+        fprintf(stderr, "breadbin-6502: --verify needs --replay FILE\n");
+        return false;
+    }
+    if (app.cli_headless && (app.quit_after_frames <= 0 || app.cli_replay)) {
+        fprintf(stderr, "breadbin-6502: --headless needs --frames N (use --verify to play a replay)\n");
+        return false;
+    }
     return true;
 }
 
@@ -884,7 +1130,7 @@ static void check_playable(void) {
 
 // Sound from the core; silent while a disk/tape loads at warp speed.
 static void core_audio(const float* samples, int num_samples, void* user_data) {
-    if (!app.booting) audio_push(samples, num_samples, user_data);
+    if (!app.booting && !app.cli_verify && !app.cli_headless) audio_push(samples, num_samples, user_data);
 }
 
 static core_video_std_t video_std(void) {
@@ -899,9 +1145,15 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     load_game_pack();
     load_settings();
     init_mods();
+    const bool replay_ready = app.cli_replay && prepare_playback();
+    if (app.cli_verify && !replay_ready) exit(2);
+    if (replay_ready) use_replay_mods();
     load_system_roms();
+    if (replay_ready) check_replay_environment();
     check_playable();
-    if (!audio_init(app.settings.audio.latency_ms)) {
+    if (app.cli_verify || app.cli_headless) {
+        // no window, no sound
+    } else if (!audio_init(app.settings.audio.latency_ms)) {
         fprintf(stderr, "breadbin-6502: no audio device, running silently\n");
     }
     audio_set_settings(&app.settings.audio);
@@ -951,6 +1203,19 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         }
     }
     if (u->screen == UI_SCREEN_NONE) u->menu_return = UI_SCREEN_NONE;
+    if (replay_ready && !start_playback() && app.cli_verify) exit(2);
+    if (app.cli_record && u->cart_loaded) start_recording();
+    if (app.cli_headless) {
+        if (!u->cart_loaded) exit(2);
+        for (long i = 0; i < app.quit_after_frames; i++) step_frame();
+        stop_recording(NULL);
+        exit(0);
+    }
+    if (app.cli_verify) {
+        // headless: every frame of the replay, including disk/tape loading
+        while (app.playing) step_frame();
+        exit(app.player.diverged ? 1 : 0);
+    }
 
     video_settings_t vs = app.settings.video;
     if (app.scale_override) vs.window_scale = app.scale_override;

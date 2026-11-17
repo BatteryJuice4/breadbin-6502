@@ -137,27 +137,41 @@ void input_release_all(void) {
     is.tapped = 0;
 }
 
-void input_apply(core_t* core) {
+void input_collect(replay_input_t* out) {
+    memset(out, 0, sizeof(*out));
+    // releases first; anything that doesn't fit this frame goes out the next
     if (is.release_all) {
+        bool all = true;
         for (int k = 0; k < 256; k++) {
-            if (is.c64_down[k]) {
-                core_key_up(core, k);
-                is.c64_down[k] = false;
-            }
+            if (!is.c64_down[k]) continue;
+            if (out->nkeys == REPLAY_MAX_KEYS) { all = false; break; }
+            out->keys[out->nkeys].key = (uint8_t)k;
+            out->keys[out->nkeys].down = 0;
+            out->nkeys++;
+            is.c64_down[k] = false;
         }
-        is.release_all = false;
+        if (all) is.release_all = false;
     }
-    for (int i = 0; i < is.queue_len; i++) {
-        if (is.queue[i].down) core_key_down(core, is.queue[i].key);
-        else                  core_key_up(core, is.queue[i].key);
+    int used = 0;
+    while (used < is.queue_len && out->nkeys < REPLAY_MAX_KEYS && !is.release_all) {
+        const key_event_t* ev = &is.queue[used++];
+        out->keys[out->nkeys].key = (uint8_t)ev->key;
+        out->keys[out->nkeys].down = ev->down ? 1 : 0;
+        out->nkeys++;
     }
-    is.queue_len = 0;
+    memmove(is.queue, is.queue + used, (size_t)(is.queue_len - used) * sizeof(is.queue[0]));
+    is.queue_len -= used;
     // a press that was released before this frame still counts for one frame
     uint8_t joy = is.tapped;
     is.tapped = 0;
     for (int k = 1; k < INPUT_MAX_KEYCODE; k++) {
         if (is.host_held[k]) joy |= is.bound_mask[k];
     }
-    core_set_joystick(core, is.cfg.joystick_port, joy);
-    core_set_joystick(core, is.cfg.joystick_port == 1 ? 2 : 1, 0);
+    out->joy[is.cfg.joystick_port == 2 ? 1 : 0] = joy;
+}
+
+void input_apply(core_t* core) {
+    replay_input_t in;
+    input_collect(&in);
+    replay_input_apply(core, &in);
 }
