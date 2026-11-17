@@ -9,10 +9,10 @@ games are published as separate repos that pin a Breadbin-6502 release.
 
 **No game ROMs are included.** You supply your own dumps.
 
-> Status: **Phase 4 (game packs).** Runs standard 8K, 16K and Ultimax cartridges
-> (`.crt`, or raw `.bin` at $8000) with a Select-ROM screen, an in-game menu, saved
-> settings and game packs (branding, default controls, ROM verification). Disk/tape
-> and mods come next.
+> Status: **Phase 4b (disk & tape).** Runs standard 8K, 16K and Ultimax cartridges
+> (`.crt`, or raw `.bin` at $8000), disks (`.d64`, `.prg`) and tapes (`.tap`, `.t64`),
+> on PAL or NTSC machines, with a Select-ROM screen, an in-game menu, saved settings and
+> game packs (branding, default controls, ROM verification). Mods come next.
 
 ## Building
 
@@ -33,13 +33,16 @@ ctest --test-dir build --output-on-failure
 
 ## Using it
 
-On first run, Breadbin-6502 shows the **Select ROM** screen. Pick a `.crt` or `.bin`
-file (or drag it onto the window) and the game starts. The launcher remembers it and
+On first run, Breadbin-6502 shows the **Select ROM** screen. Pick a cartridge (`.crt`,
+`.bin`), disk (`.d64`, `.prg`) or tape (`.tap`, `.t64`) image (or drag it onto the
+window) and the game starts. Disk and tape games load at full speed behind a short
+"Loading" notice: no BASIC prompt, no waiting for the tape. The launcher remembers it and
 starts it straight away next time. Your ROM files are only read, never copied or changed.
 
 Press **Esc** during play to pause and open the menu:
 
-- **ROM:** the current cartridge, its type and SHA-1, and Select ROM…
+- **ROM:** the current game, its type and SHA-1, Select ROM…, and Swap disk/tape… for
+  games on several disks or tapes
 - **Video:** window scale (applies on the next launch), fullscreen, integer scaling,
   aspect correction, border crop, sharp or smooth filtering
 - **Audio:** volume, mute, latency
@@ -54,7 +57,7 @@ Settings are saved per user and per game (`<id>` is the game pack's id, or `gene
 | Windows | `%APPDATA%\breadbin-6502\games\<id>\settings.toml` |
 | macOS | `~/Library/Application Support/breadbin-6502/games/<id>/settings.toml` |
 
-A cartridge passed on the command line is played without being remembered.
+A game passed on the command line is played without being remembered.
 
 ## Game packs
 
@@ -70,6 +73,12 @@ Supported cartridge types so far: `.crt` hardware type 0 (normal cartridge) as 8
 16K or Ultimax. Raw `.bin` dumps of 4K/8K/16K are loaded at $8000. Bank-switching
 types (Ocean, Magic Desk, EasyFlash, ...) are added when a game needs them, and are
 reported as unsupported until then.
+
+Disks are served through the C64's own LOAD routine (instantly, no 1541 drive ROM
+needed), which covers BASIC loads and games that load more parts with the KERNAL. Games
+with their own fast loaders talk to the drive directly and don't work yet. Tapes play
+through an emulated datasette, so tape turbo loaders work; how fast a long tape loads
+depends on your computer. See [docs/gamepack.md](docs/gamepack.md#loading-disk-and-tape).
 
 Windows (MSVC) and macOS work the same way, without extra dependencies.
 
@@ -105,7 +114,7 @@ You can also pass `--sysroms <folder>`.
 
 Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
 
-Command-line options: `[cartridge]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
+Command-line options: `[game file]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
 `--generic` (ignore built-in/bundled game packs), `--scale N`, `--pal` / `--ntsc` (video standard;
 default: the game pack's, else PAL),
 `--frames N` (quit after N frames, for testing). Set `BREADBIN_NO_NATIVE_DIALOG=1` to

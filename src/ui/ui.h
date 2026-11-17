@@ -46,10 +46,17 @@ typedef struct {
     char pack_notes[512];       // e.g. "expects NTSC, running PAL" (one per line)
     char blocked[1024];         // non-empty: the game can't start, explained here
 
-    // current cartridge
-    bool cart_loaded;
+    // what the game pack plays, for wording: "cartridge", "disk" or "tape" (NULL = generic: any)
+    const char* pack_media;
+
+    // current game media (cartridge, disk or tape)
+    bool cart_loaded;           // any media loaded (name kept from the cartridge-only days)
+    const char* media_kind;     // "Cartridge", "Disk" or "Tape"
+    bool can_swap;              // disk/tape: offer "Swap disk/tape..."
+    bool loading;               // disk/tape loading at warp speed (no picture yet)
+    float loading_seconds;      // emulated loading time so far
     char rom_path[SETTINGS_PATH_MAX];
-    char rom_name[33];
+    char rom_name[96];
     char rom_sha1[41];
     const char* rom_mode;
     rom_status_t rom_status;
@@ -63,6 +70,7 @@ typedef struct {
     // requests from the UI, handled and cleared by the app
     bool act_resume, act_reset, act_quit, act_select_rom, act_no_cart;
     bool act_video_changed, act_audio_changed, act_input_changed;
+    bool act_swap_media;        // "Swap disk/tape..." (keeps the machine running)
     bool act_load_path;         // load_path chosen in the built-in browser
     char load_path[SETTINGS_PATH_MAX];
 

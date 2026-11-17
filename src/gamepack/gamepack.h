@@ -46,6 +46,10 @@ typedef struct {
     uint16_t bin_load_address;      // raw .bin dumps; 0 = $8000
     int known_sha1_count;
     char known_sha1[GAMEPACK_MAX_SHA1][41];     // lowercase hex, ROM chip data only
+    // [load] (disk and tape games)
+    char load_file[17];             // file to LOAD; "" = the first one
+    int load_done_pc;               // loading is over when this PC runs; -1 = not set
+    int load_done_frames;           // ... or after this many frames; 0 = not set
     // [video] (display only)
     char palette[32];
     int extended_view_max_width;    // 0 = unsupported

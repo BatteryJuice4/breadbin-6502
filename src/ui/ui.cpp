@@ -63,7 +63,7 @@ bool has_rom_ext(const std::string& n) {
     if (n.size() < 4) return false;
     std::string e = n.substr(n.size() - 4);
     for (char& c : e) c = (char)tolower((unsigned char)c);
-    return e == ".crt" || e == ".bin";
+    return e == ".crt" || e == ".bin" || e == ".d64" || e == ".prg" || e == ".t64" || e == ".tap";
 }
 
 void browser_list() {
@@ -128,11 +128,11 @@ void draw_message(const ui_state_t* st) {
 
 std::string rom_status_text(const ui_state_t* st) {
     switch (st->rom_status) {
-        case ROM_STATUS_GENERIC:    return "Generic mode (no game pack): any cartridge is accepted.";
+        case ROM_STATUS_GENERIC:    return "Generic mode (no game pack): any cartridge, disk or tape is accepted.";
         case ROM_STATUS_KNOWN:      return std::string("Verified: a known good dump of ") + st->game_title + ".";
         case ROM_STATUS_UNKNOWN:    return std::string("Not a known dump of ") + st->game_title + ". Mods may not work.";
         case ROM_STATUS_UNVERIFIED: return "Not checked: this game pack doesn't list known dumps yet.";
-        default:                    return "No cartridge loaded.";
+        default:                    return "Nothing loaded.";
     }
 }
 
@@ -207,7 +207,7 @@ void file_browser_window(ui_state_t* st) {
             }
         }
         ImGui::EndChild();
-        ImGui::TextColored(kDimColor, "Showing folders and .crt/.bin files.");
+        ImGui::TextColored(kDimColor, "Showing folders and .crt .bin .d64 .prg .t64 .tap files.");
         const bool can_open = g.browser_selected >= 0 && g.browser_selected < (int)g.browser_entries.size();
         ImGui::BeginDisabled(!can_open);
         if (ImGui::Button("Open")) {
@@ -250,10 +250,12 @@ void select_rom_screen(ui_state_t* st) {
         ImGui::TextWrapped("%s", st->blocked);
         ImGui::PopStyleColor();
     } else if (st->has_pack) {
-        ImGui::TextWrapped("To play %s, choose your own dump of the cartridge (.crt or .bin).", st->game_title);
+        const char* m = st->pack_media ? st->pack_media : "cartridge";
+        const char* ext = !strcmp(m, "disk") ? ".d64 or .prg" : !strcmp(m, "tape") ? ".tap or .t64" : ".crt or .bin";
+        ImGui::TextWrapped("To play %s, choose your own copy of the %s (%s).", st->game_title, m, ext);
         dim_text("You can also drag the file onto this window.");
     } else {
-        ImGui::TextWrapped("Choose a Commodore 64 cartridge image (.crt or .bin) to play.");
+        ImGui::TextWrapped("Choose a Commodore 64 cartridge (.crt, .bin), disk (.d64, .prg) or tape (.tap, .t64) image to play.");
         dim_text("You can also drag the file onto this window.");
     }
     ImGui::Spacing();
@@ -301,12 +303,12 @@ void tab_rom(ui_state_t* st) {
         ImGui::Separator();
     }
     if (st->cart_loaded) {
-        ImGui::Text("Cartridge: %s", st->rom_name[0] ? st->rom_name : "(unnamed)");
+        ImGui::Text("%s: %s", st->media_kind ? st->media_kind : "Cartridge", st->rom_name[0] ? st->rom_name : "(unnamed)");
         ImGui::TextWrapped("File: %s", st->rom_path[0] ? st->rom_path : "(command line)");
         ImGui::Text("Type: %s", st->rom_mode ? st->rom_mode : "?");
         ImGui::Text("SHA-1: %s", st->rom_sha1);
     } else {
-        ImGui::TextUnformatted("No cartridge (BASIC).");
+        ImGui::TextUnformatted("Nothing loaded (BASIC).");
     }
     ImGui::PushStyleColor(ImGuiCol_Text, st->rom_status == ROM_STATUS_UNKNOWN ? kErrorColor :
                                          st->rom_status == ROM_STATUS_KNOWN ? kOkColor : kDimColor);
@@ -315,8 +317,28 @@ void tab_rom(ui_state_t* st) {
     ImGui::Text("System ROMs: %s", st->system_roms);
     ImGui::Spacing();
     if (ImGui::Button("Select ROM...")) st->act_select_rom = true;
+    if (st->can_swap) {
+        ImGui::SameLine();
+        const bool tape = st->media_kind && !strcmp(st->media_kind, "Tape");
+        if (ImGui::Button(tape ? "Swap tape..." : "Swap disk...")) st->act_swap_media = true;
+        dim_text(tape ? "Swapping inserts another tape without restarting the game (for games on several tapes)."
+                      : "Swapping inserts another disk without restarting the game (for games on several disks or sides).");
+    }
     ImGui::Spacing();
     draw_message(st);
+}
+
+// Small centered notice while a disk or tape game loads at warp speed.
+void loading_overlay(const ui_state_t* st) {
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::Begin("##loading", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::Text("Loading %s...", st->rom_name[0] ? st->rom_name : st->game_title);
+    if (st->loading_seconds >= 1.0f) dim_text("%.0f s of %s time", st->loading_seconds,
+                                              st->media_kind && !strcmp(st->media_kind, "Tape") ? "tape" : "loading");
+    ImGui::End();
 }
 
 void tab_video(ui_state_t* st) {
@@ -583,6 +605,7 @@ void ui_frame(ui_state_t* st) {
         confirm_window(st);
     } else {
         g.browser_open = false;
+        if (st->loading) loading_overlay(st);
     }
 }
 

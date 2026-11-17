@@ -116,6 +116,7 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
     gamepack_t p;
     memset(&p, 0, sizeof(p));
     p.sid_model = 6581;
+    p.load_done_pc = -1;
     settings_t d;
     if (defaults) d = *defaults; else settings_default(&d);
     bool ok = false;
@@ -123,7 +124,7 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
     const char* T = "game";
 
     static const char* const top_keys[] = { "id", "title", "media", "video_standard", "sid_model",
-        "joystick_port", "min_launcher_version", "system_roms", "rom", "input", "video", NULL };
+        "joystick_port", "min_launcher_version", "system_roms", "rom", "load", "input", "video", NULL };
     check_keys(top, top_keys, &w, T);
 
     if (!tu_get_string(top, "id", p.id, sizeof(p.id), &w, T) || !gamepack_id_valid(p.id)) {
@@ -204,6 +205,21 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
         }
     } else if (rom.type != TOML_UNKNOWN) {
         tu_warn(&w, "[game] rom: expected a table");
+    }
+
+    toml_datum_t ld = toml_get(top, "load");
+    if (ld.type == TOML_TABLE) {
+        static const char* const load_keys[] = { "file", "done_pc", "done_frames", NULL };
+        check_keys(ld, load_keys, &w, "load");
+        char file[64];
+        if (tu_get_string(ld, "file", file, sizeof(file), &w, "load")) {
+            if (strlen(file) <= 16) snprintf(p.load_file, sizeof(p.load_file), "%s", file);
+            else tu_warn(&w, "[load] file: C64 file names have at most 16 characters");
+        }
+        tu_get_int(ld, "done_pc", 0, 0xFFFF, &p.load_done_pc, &w, "load");
+        tu_get_int(ld, "done_frames", 1, 20 * 60 * 60, &p.load_done_frames, &w, "load");
+    } else if (ld.type != TOML_UNKNOWN) {
+        tu_warn(&w, "[game] load: expected a table");
     }
 
     toml_datum_t in = toml_get(top, "input");

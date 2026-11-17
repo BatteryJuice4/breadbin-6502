@@ -144,6 +144,27 @@ static void test_hashes(void) {
 }
 
 // Key names promised in docs/gamepack.md
+// [load]: disk and tape games
+static void test_load(void) {
+    gamepack_t p;
+    settings_t d;
+    settings_default(&d);
+    CHECK(parse(&p, &d, "id = \"x\"\ntitle = \"X\"\nmedia = \"disk\"\n"
+                        "[load]\nfile = \"GAME\"\ndone_pc = 0x0810\ndone_frames = 600\n"), "load table rejected: %s", err);
+    CHECK(p.media == GAMEPACK_MEDIA_DISK && !strcmp(p.load_file, "GAME") && p.load_done_pc == 0x0810 &&
+          p.load_done_frames == 600, "load values");
+    CHECK(strstr(warns, "unknown") == NULL, "unexpected warnings: %s", warns);
+    // Not set: done_pc is -1, done_frames 0, file empty.
+    CHECK(parse(&p, &d, "id = \"x\"\ntitle = \"X\"\nmedia = \"tape\"\n"), "minimal tape pack");
+    CHECK(p.media == GAMEPACK_MEDIA_TAPE && p.load_file[0] == 0 && p.load_done_pc == -1 && p.load_done_frames == 0, "load defaults");
+    // Bad values warn and are ignored.
+    CHECK(parse(&p, &d, "id = \"x\"\ntitle = \"X\"\n[load]\nfile = \"A NAME LONGER THAN 16\"\ndone_pc = 70000\n"
+                        "done_frames = 0\nspeed = 2\n"), "bad load values must not reject the pack");
+    CHECK(p.load_file[0] == 0 && p.load_done_pc == -1 && p.load_done_frames == 0, "bad load values ignored");
+    CHECK(strstr(warns, "16 characters") && strstr(warns, "done_pc") && strstr(warns, "done_frames") &&
+          strstr(warns, "unknown key \"speed\""), "load warnings: %s", warns);
+}
+
 static void test_documented_keys(void) {
     const char* names[] = { "A", "Z", "0", "9", "Space", "Enter", "Escape", "Tab", "Backspace", "Up", "Down",
                             "Left", "Right", "LCtrl", "RCtrl", "LShift", "RShift", "LAlt", "RAlt", "F1", "F12",
@@ -178,6 +199,7 @@ int main(int argc, char** argv) {
     test_required_and_invalid();
     test_versions();
     test_hashes();
+    test_load();
     if (failures == 0) printf("test_gamepack: all passed\n");
     return failures ? 1 : 0;
 }

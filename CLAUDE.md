@@ -10,9 +10,12 @@ Repo-specific rules:
 
 - **No game-specific code here.** Gorf (or any game) lives in its own repo. Add generic,
   config-driven options instead.
-- **Only `src/core/core_chips.c` includes chips headers.** It uses the patched
-  `src/core/patched/c64.h` (expansion port added), not `external/chips/systems/c64.h`. Everything else goes through
-  `src/core/core.h`.
+- **Only `src/core/core_chips.c` includes chips headers.** It uses the patched copies in
+  `src/core/patched/` (`c64.h`: expansion port, NTSC machine; `m6569.h`: NTSC timing;
+  `c1530.h`: bigger tape buffer), not the originals in `external/chips/`. Changes in them
+  are marked `BREADBIN PATCH`. Everything else goes through `src/core/core.h`.
+- Disk/tape media live in `src/media/` (pure C on top of `core.h`); `tests/test_media.c`
+  builds its own test disks and tapes, so no third-party images are needed.
 - **Determinism:** the core runs a fixed cycle count per frame. Never feed wall-clock
   time or unseeded randomness into emulation. `tests/test_core.c` checks this.
 - Vendored code goes in `external/` with its license, and is recorded in

@@ -2,7 +2,7 @@
 
 A game pack tells Breadbin-6502 about one game: its name, which ROM dumps are known
 to be good, and the default controls and display settings. Without a game pack the
-launcher runs in **generic mode**: any cartridge is accepted and the built-in
+launcher runs in **generic mode**: any cartridge, disk or tape is accepted and the built-in
 defaults apply.
 
 A game pack never contains the game itself. Players always supply their own dump.
@@ -34,7 +34,7 @@ Use original artwork only. Don't ship the game's box art, logos or screenshots.
 ```toml
 id      = "mygame"         # required: a-z 0-9 - _ (1-63 chars), used for the settings folder
 title   = "My Game"        # required: window title and menus
-media   = "cartridge"      # "cartridge" (default) | "disk" | "tape" (disk/tape: not yet)
+media   = "cartridge"      # "cartridge" (default) | "disk" (.d64 .prg) | "tape" (.tap .t64)
 video_standard = "PAL"     # "PAL" (default) | "NTSC" (6567R8 timing, 59.83 fps); --pal/--ntsc override it
 sid_model = "6581"         # "6581" (default) | "8580" (only the 6581 is emulated so far)
 joystick_port = 2          # default joystick port (1 or 2)
@@ -44,7 +44,12 @@ system_roms = "any"        # "any" (default) | "original": needs real Commodore 
 [rom]
 cart_type    = "auto"      # "auto" (from the .crt header) | "8k" | "16k" | "ultimax"
 load_address = 0x8000      # raw .bin dumps only: 0x8000 (default), 0xA000, 0xE000, 0xF000
-known_sha1   = []          # SHA-1 of the ROM chip data (see below)
+known_sha1   = []          # SHA-1 of the game data (see below); for disk/tape games too
+
+[load]                     # disk and tape games only (see "Loading")
+file        = ""           # file to LOAD; "" = the first one on the disk/tape
+done_pc     = 0x0810       # loading is over when the CPU runs this address
+done_frames = 300          # ... or this many frames after the reset (when done_pc isn't set)
 
 [input.default]            # default keys; players can rebind them in the menu
 up    = "Up"
@@ -79,14 +84,46 @@ to the joystick don't also type on the C64 keyboard, so a game that needs a type
 
 ### ROM hashes
 
-`known_sha1` lists the SHA-1 of the ROM **chip data only**: the CHIP packet payloads of
-a `.crt` file, or the whole of a raw `.bin`. The same dump therefore matches whether it's
-wrapped as `.crt` or not. The launcher shows the SHA-1 of the loaded cartridge in the
-menu's ROM tab.
+`known_sha1` lists the SHA-1 of the game data, defined per format so that the same game
+matches no matter which header or padding a tool wrote:
 
-When the player picks a ROM that isn't in the list (or is a different cartridge type
-than `cart_type`), the launcher warns them and lets them play anyway. With an empty
-list, ROMs aren't checked.
+| Format | What the SHA-1 covers |
+|---|---|
+| `.crt` / `.bin` cartridge | the ROM **chip data only**: the CHIP packet payloads of a `.crt`, or the whole raw `.bin` (so a dump matches wrapped or not) |
+| `.d64` disk | the sector data (683 or 768 sectors), without the optional error bytes |
+| `.prg` program | the whole file |
+| `.t64` tape archive | each file as loaded (2-byte load address + data), in directory order |
+| `.tap` raw tape | the pulse data after the 20-byte header |
+
+The launcher shows the SHA-1 of the loaded game in the menu's ROM tab.
+
+When the player picks a file that isn't in the list (or is a different cartridge type
+than `cart_type`, or a different kind of media than `media`), the launcher warns them and
+lets them play anyway. With an empty list, files aren't checked. For games on several
+disks, list every disk's SHA-1.
+
+### Loading (disk and tape)
+
+There are no loading screens: the launcher resets the C64, types `LOAD"<file>",8,1`
+(disk) or `LOAD"<file>",1,1` (tape) and then `RUN`, and runs at full speed with no
+picture or sound until loading is over.
+
+- **Disks** (`.d64`, `.prg`) and **`.t64`** archives are served instantly: when the
+  game calls the KERNAL's LOAD routine, the launcher hands over the file directly. Games
+  that load with their own fast loader (talking to the 1541 drive directly) don't work
+  yet; that needs full drive emulation.
+- **`.tap`** tapes play through the emulated datasette in real time, sped up as much as
+  the computer allows, so turbo loaders work. Long tapes still take a while.
+
+By default loading counts as over when no file was loaded (and the tape motor was off)
+for a moment after `RUN`. Many games then unpack themselves for a few seconds (the
+striped border); set `done_pc` (an address the game's own code reaches, such as its
+main loop or title screen) or `done_frames` to keep the picture hidden until the game is
+really ready. There's a time limit (2 minutes of C64 time for disks, 20 for tapes), so a
+wrong value never hides a game forever.
+
+Players can insert another disk or tape from the menu ("Swap disk..."), without
+restarting the game.
 
 ## Example
 

@@ -29,11 +29,16 @@ filedialog_result_t platform_open_rom_dialog(const char* default_dir, char* out,
         if (err) snprintf(err, err_size, "file dialog: %s", NFD_GetError() ? NFD_GetError() : "init failed");
         return FILEDIALOG_ERROR;
     }
-    nfdu8filteritem_t filters[] = { { "C64 cartridge", "crt,bin" } };
+    nfdu8filteritem_t filters[] = {
+        { "C64 games", "crt,bin,d64,prg,t64,tap" },
+        { "Cartridges", "crt,bin" },
+        { "Disks", "d64,prg" },
+        { "Tapes", "tap,t64" },
+    };
     nfdu8char_t* path = NULL;
     nfdopendialogu8args_t args = { 0 };
     args.filterList = filters;
-    args.filterCount = 1;
+    args.filterCount = 4;
     args.defaultPath = (default_dir && default_dir[0]) ? default_dir : NULL;
     nfdresult_t r = NFD_OpenDialogU8_With(&path, &args);
     filedialog_result_t res;
