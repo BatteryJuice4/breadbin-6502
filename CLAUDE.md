@@ -14,6 +14,9 @@ Repo-specific rules:
   `src/core/patched/` (`c64.h`: expansion port, NTSC machine; `m6569.h`: NTSC timing;
   `c1530.h`: bigger tape buffer), not the originals in `external/chips/`. Changes in them
   are marked `BREADBIN PATCH`. Everything else goes through `src/core/core.h`.
+- `core_t` (it holds a `c64_t`, framebuffer `alignas(64)`) needs 64-byte alignment: only
+  allocate it through `core_alloc()` in `core_chips.c`, never plain `malloc`. CI's
+  `ubuntu-latest` (26.04) compiles for x86-64-v3 (AVX2), where misalignment faults.
 - Disk/tape media live in `src/media/` (pure C on top of `core.h`); `tests/test_media.c`
   builds its own test disks and tapes, so no third-party images are needed.
 - Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS

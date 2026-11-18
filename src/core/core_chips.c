@@ -23,6 +23,7 @@
 #include "core/core.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -130,6 +131,25 @@ static void core_power_on(core_t* core) {
     core->wevent_overflow = false;
 }
 
+// core_t holds a c64_t, whose framebuffer is alignas(64), so core_t needs 64-byte
+// alignment; malloc/calloc only promise 16 (alignof(max_align_t)). With wider SIMD
+// (e.g. AVX2 on an x86-64-v3 build) the compiler uses aligned loads on core_t
+// fields, which fault on a 16-byte-aligned block. aligned_alloc isn't in MSVC, so
+// over-allocate and keep the original pointer just before the aligned block.
+static core_t* core_alloc(void) {
+    const size_t align = _Alignof(core_t) > sizeof(void*) ? _Alignof(core_t) : sizeof(void*);
+    unsigned char* raw = calloc(1, sizeof(core_t) + align + sizeof(void*));
+    if (!raw) return NULL;
+    uintptr_t p = (uintptr_t)(raw + sizeof(void*));
+    p = (p + align - 1) & ~(uintptr_t)(align - 1);
+    ((void**)p)[-1] = raw;
+    return (core_t*)p;
+}
+
+static void core_free(core_t* core) {
+    if (core) free(((void**)core)[-1]);
+}
+
 core_t* core_create(const core_desc_t* desc) {
     if (!desc || (desc->video_std != CORE_VIDEO_PAL && desc->video_std != CORE_VIDEO_NTSC)) {
         return NULL;
@@ -139,7 +159,7 @@ core_t* core_create(const core_desc_t* desc) {
         !desc->rom_chargen || desc->rom_chargen_size != 0x1000) {
         return NULL;
     }
-    core_t* core = calloc(1, sizeof(core_t));
+    core_t* core = core_alloc();
     if (!core) {
         return NULL;
     }
@@ -161,7 +181,7 @@ core_t* core_create(const core_desc_t* desc) {
 void core_destroy(core_t* core) {
     if (core) {
         c64_discard(&core->sys);
-        free(core);
+        core_free(core);
     }
 }
 
