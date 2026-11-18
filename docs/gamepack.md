@@ -29,7 +29,7 @@ Use original artwork only. Don't ship the game's box art, logos or screenshots.
 
 `--generic` skips 2 and 3. Each game keeps its own settings in
 `<config dir>/games/<id>/settings.toml`, installed mods in `<config dir>/mods/<id>/` and
-diagnostic replays in `<config dir>/replays/<id>/`.
+diagnostic replays in `<config dir>/replays/<id>/`, save states in `<config dir>/states/<id>/`.
 
 Bundled mods are only found for folder packs (1 and 3), not for packs built into the
 executable. They're off until the player enables them; an installed mod with the same

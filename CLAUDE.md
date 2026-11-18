@@ -24,6 +24,11 @@ Repo-specific rules:
   fingerprint), so anything that affects emulation must happen there or at game
   load, never elsewhere, or replays stop matching. `--record FILE --headless --frames N`
   and `--replay FILE --verify` make and check replays without a window.
+- Save states: `core_save_state`/`core_load_state` (chips snapshot, ROM arrays zeroed and
+  the 8 MB tape buffer left out: **a state must never contain ROM data**, `test_core`
+  checks it), files in `src/state/` (`.bbstate`, header says what the state depends on,
+  `savestate_compatible` refuses mismatches). States are raw structs: they only load in
+  a build with the same `core_state_layout()`. `core_reset` is a full power cycle.
 - **Determinism:** the core runs a fixed cycle count per frame. Never feed wall-clock
   time or unseeded randomness into emulation. `tests/test_core.c` and
   `tests/test_replay.c` check this.

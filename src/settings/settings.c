@@ -44,6 +44,8 @@ void settings_default(settings_t* s) {
     in->keys[INPUT_FIRE][1] = input_key_from_name("RCtrl");
     in->joystick_port = 2;
     in->menu_key = input_key_from_name("Escape");
+    in->quick_save_key = input_key_from_name("F9");     // the C64 has no F9/F10 keys,
+    in->quick_load_key = input_key_from_name("F10");    // so games never need them
 }
 
 // ---- parsing ---------------------------------------------------------------
@@ -110,6 +112,8 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         tu_get_keys(in, "menu", menu, 1, &w, "input");
         if (menu[0]) t.input.menu_key = menu[0];
         else if (toml_get(in, "menu").type != TOML_UNKNOWN) tu_warn(&w, "[input] menu: a menu key is required, keeping the old one");
+        tu_get_keys(in, "quick_save", &t.input.quick_save_key, 1, &w, "input");
+        tu_get_keys(in, "quick_load", &t.input.quick_load_key, 1, &w, "input");
     }
 
     toml_datum_t mods = toml_get(r.toptab, "mods");
@@ -207,6 +211,9 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     }
     put(&o, "menu = ");
     put_string(&o, input_key_name(s->input.menu_key) ? input_key_name(s->input.menu_key) : "Escape");
+    put(&o, "\n");
+    put_keys(&o, "quick_save", &s->input.quick_save_key, 1);
+    put_keys(&o, "quick_load", &s->input.quick_load_key, 1);
     put(&o, "\n\n[mods]\n# enabled mods, in load order\nenabled = [");
     for (int i = 0; i < s->mods_enabled_count; i++) {
         put(&o, i ? ", " : "");

@@ -9,11 +9,11 @@ games are published as separate repos that pin a Breadbin-6502 release.
 
 **No game ROMs are included.** You supply your own dumps.
 
-> Status: **Phase 6 (mods v1).** Runs standard 8K, 16K and Ultimax cartridges
+> Status: **Phase 7 (polish), in progress.** Runs standard 8K, 16K and Ultimax cartridges
 > (`.crt`, or raw `.bin` at $8000), disks (`.d64`, `.prg`) and tapes (`.tap`, `.t64`),
 > on PAL or NTSC machines, with a Select-ROM screen, an in-game menu, saved settings,
 > game packs (branding, default controls, ROM verification), mods (patches, cheats,
-> palettes) and diagnostic replays.
+> palettes), diagnostic replays and save states.
 
 ## Building
 
@@ -49,9 +49,17 @@ Press **Esc** during play to pause and open the menu:
   (Colodore, Pepto, or one from a palette mod)
 - **Audio:** volume, mute, latency
 - **Input:** joystick port (1 or 2), key bindings for the joystick (two keys per
-  direction; click to rebind, right-click to clear) and the menu key
+  direction; click to rebind, right-click to clear), the menu key and the quick
+  save/load keys
+- **States:** save states: a Quick slot (F9 saves, F10 loads, also during play) and five
+  more slots, with when each was saved
 - **Mods:** install `.c64mod` packages, switch mods on and off, set their load order;
   a mod that can't run says why (see [Mods](#mods))
+
+A **save state** keeps the whole machine at that moment. It only loads with the same
+game file, system ROMs and patch mods, and in the same version of Breadbin-6502 (the
+States tab says why one can't be loaded). States never contain ROM data. They're kept in
+the same `breadbin-6502` config folder as the settings (below), under `states/<id>/`.
 
 The ROM tab can also **record a diagnostic replay**: it restarts the game and records
 your input and a fingerprint of the machine after every frame. Playing it back
@@ -133,6 +141,7 @@ You can also pass `--sysroms <folder>`.
 | Left Ctrl / Left Alt | CTRL / C= |
 | F1–F8 | F1–F8 |
 | Keypad 8/2/4/6, Keypad 0 or Right Ctrl | joystick and fire (port 2 by default; some games use port 1) |
+| F9 / F10 | quick save / quick load (the C64 has no F9/F10 keys) |
 | F11 | toggle fullscreen |
 | Esc | launcher menu |
 

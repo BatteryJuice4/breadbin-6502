@@ -47,6 +47,8 @@ static void test_roundtrip(void) {
     a.input.keys[INPUT_UP][1] = input_key_from_name("W");
     a.input.joystick_port = 1;
     a.input.menu_key = input_key_from_name("F12");
+    a.input.quick_save_key = input_key_from_name("F5");
+    a.input.quick_load_key = 0;     // unbound
 
     char text[4096];
     size_t need = settings_serialize(&a, NULL, 0);
@@ -69,6 +71,18 @@ static void test_roundtrip(void) {
     // Truncated buffer: snprintf-style, NUL-terminated, same reported size
     char small[16];
     CHECK(settings_serialize(&a, small, sizeof(small)) == need && small[15] == 0, "truncated serialize");
+}
+
+static void test_quick_keys(void) {
+    settings_t s;
+    settings_default(&s);
+    CHECK(s.input.quick_save_key == input_key_from_name("F9") && s.input.quick_load_key == input_key_from_name("F10"),
+          "quick save/load default to F9/F10");
+    CHECK(parse(&s, "[input]\nquick_save = \"F2\"\nquick_load = []\n"), "parse: %s", err);
+    CHECK(s.input.quick_save_key == input_key_from_name("F2") && s.input.quick_load_key == 0, "rebind / unbind");
+    settings_default(&s);
+    CHECK(parse(&s, "[input]\nmenu = \"F12\"\n"), "parse: %s", err);
+    CHECK(s.input.quick_save_key == input_key_from_name("F9"), "older settings files keep the default keys");
 }
 
 static void test_partial_and_invalid(void) {
@@ -142,6 +156,7 @@ static void test_files(void) {
 int main(void) {
     test_keynames();
     test_roundtrip();
+    test_quick_keys();
     test_partial_and_invalid();
     test_files();
     if (failures == 0) printf("test_settings: all passed\n");

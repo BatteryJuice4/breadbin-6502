@@ -54,6 +54,7 @@ typedef struct {
     int keys[INPUT_ACTION_COUNT][INPUT_MAX_BINDS];  // host keycodes, 0 = unbound
     int joystick_port;                              // 1 or 2
     int menu_key;                                   // opens/closes the launcher menu
+    int quick_save_key, quick_load_key;             // save states, 0 = none
 } input_settings_t;
 
 typedef struct {

@@ -26,6 +26,7 @@
 #include "rom/rom_file.h"
 #include "rom/sysroms.h"
 #include "settings/settings.h"
+#include "state/savestate.h"
 #include "ui/ui.h"
 #include "video/image.h"
 #include "video/palettes.h"
@@ -35,6 +36,7 @@
 #include "sokol_log.h"
 #include "sokol_time.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +94,8 @@ static struct {
     bool cli_verify;                        // --verify: play the replay without a window, then exit
     const char* cli_record;                 // --record FILE: record from the start, save there on exit
     bool cli_headless;                      // --headless: run --frames N frames without a window, then exit
+    char states_dir[SETTINGS_PATH_MAX];     // save states ("" = no config dir)
+    ui_screen_t prev_screen;                // to notice the menu opening
     double frame_period;
     double accum;
     long quit_after_frames;             // --frames N (0 = run until closed)
@@ -769,6 +773,160 @@ static void select_rom(bool swap) {
 
 // ---- UI actions ------------------------------------------------------------
 
+// ---- save states ----------------------------------------------------------------
+
+static bool state_path(int slot, char* out, size_t out_size) {
+    if (!app.states_dir[0] || slot < 0 || slot >= UI_STATE_SLOTS) return false;
+    const char sep = platform_path_sep();
+    const int n = slot == 0 ? snprintf(out, out_size, "%s%cquick.bbstate", app.states_dir, sep)
+                            : snprintf(out, out_size, "%s%cslot%d.bbstate", app.states_dir, sep, slot);
+    return n > 0 && (size_t)n < out_size;
+}
+
+static const char* slot_name(int slot, char* buf, size_t size) {
+    if (slot == 0) snprintf(buf, size, "Quick");
+    else snprintf(buf, size, "slot %d", slot);
+    return buf;
+}
+
+// What a state saved now would depend on.
+static void state_header_now(savestate_header_t* h) {
+    memset(h, 0, sizeof(*h));
+    snprintf(h->launcher_version, sizeof(h->launcher_version), "%s", BB_VERSION);
+    snprintf(h->layout, sizeof(h->layout), "%016llx", (unsigned long long)core_state_layout());
+    snprintf(h->game_id, sizeof(h->game_id), "%s", game_id());
+    snprintf(h->rom_name, sizeof(h->rom_name), "%s", app.ui.rom_name);
+    const bool disk_or_tape = app.media.fmt != MEDIA_FMT_UNKNOWN;
+    snprintf(h->rom_sha1, sizeof(h->rom_sha1), "%s", disk_or_tape ? app.media.sha1 : app.ui.rom_sha1);
+    snprintf(h->media, sizeof(h->media), "%s", disk_or_tape ? media_format_name(app.media.fmt) + 1 : "cartridge");
+    h->ntsc = core_frame_rate(app.core) > 55.0;
+    sha1_hex(app.roms.kernal, sizeof(app.roms.kernal), h->sysrom_sha1[0]);
+    sha1_hex(app.roms.basic, sizeof(app.roms.basic), h->sysrom_sha1[1]);
+    sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), h->sysrom_sha1[2]);
+    snprintf(h->patches, sizeof(h->patches), "%s", app.patch_sig);
+    h->frame = core_frame_count(app.core);
+}
+
+static void states_msg(bool is_error, const char* fmt, ...)
+#if defined(__GNUC__) || defined(__clang__)
+    __attribute__((format(printf, 2, 3)))
+#endif
+    ;
+static void states_msg(bool is_error, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(app.ui.states_message, sizeof(app.ui.states_message), fmt, ap);
+    va_end(ap);
+    app.ui.states_message_is_error = is_error;
+    fprintf(stderr, "breadbin-6502: %s\n", app.ui.states_message);
+    // also shown over the game when this came from a hotkey
+    snprintf(app.ui.toast, sizeof(app.ui.toast), "%.150s", app.ui.states_message);
+    app.ui.toast_frames = is_error ? 240 : 120;
+}
+
+static void update_states_ready(void) {
+    ui_state_t* u = &app.ui;
+    u->states_ready = false;
+    if (!u->cart_loaded) snprintf(u->states_unavailable, sizeof(u->states_unavailable), "Start a game to use save states.");
+    else if (app.booting) snprintf(u->states_unavailable, sizeof(u->states_unavailable), "Wait until the game has loaded.");
+    else if (!app.states_dir[0]) snprintf(u->states_unavailable, sizeof(u->states_unavailable), "There's no settings folder to keep save states in.");
+    else u->states_ready = true;
+}
+
+// Read the slot files' headers: what's there and whether it fits the running game.
+static void refresh_state_slots(void) {
+    update_states_ready();
+    savestate_header_t now;
+    state_header_now(&now);
+    for (int i = 0; i < UI_STATE_SLOTS; i++) {
+        ui_state_slot_t* s = &app.ui.state_slots[i];
+        memset(s, 0, sizeof(*s));
+        char path[SETTINGS_PATH_MAX];
+        if (!state_path(i, path, sizeof(path)) || !platform_file_exists(path)) continue;
+        s->used = true;
+        savestate_header_t h;
+        char err[256];
+        if (!savestate_load(path, &h, NULL, NULL, err, sizeof(err))) {
+            snprintf(s->note, sizeof(s->note), "Can't be read: %s", err);
+            continue;
+        }
+        snprintf(s->saved_at, sizeof(s->saved_at), "%s", h.saved_at);
+        s->loadable = savestate_compatible(&h, &now, s->note, sizeof(s->note));
+    }
+}
+
+static void save_state(int slot) {
+    char path[SETTINGS_PATH_MAX], name[16];
+    update_states_ready();
+    if (!app.ui.states_ready) {
+        states_msg(true, "Can't save: %s", app.ui.states_unavailable);
+        return;
+    }
+    if (!state_path(slot, path, sizeof(path))) return;
+    const size_t n = core_state_size();
+    uint8_t* st = malloc(n);
+    if (!st || !core_save_state(app.core, st, n)) {
+        free(st);
+        states_msg(true, "Can't save: out of memory");
+        return;
+    }
+    savestate_header_t h;
+    state_header_now(&h);
+    const time_t t = time(NULL);    // shown to the player only; never reaches the emulation
+    const struct tm* lt = localtime(&t);
+    if (lt) strftime(h.saved_at, sizeof(h.saved_at), "%Y-%m-%d %H:%M:%S", lt);
+    char err[512];
+    if (savestate_save(path, &h, st, n, err, sizeof(err))) states_msg(false, "Saved to %s.", slot_name(slot, name, sizeof(name)));
+    else states_msg(true, "Can't save: %s", err);
+    free(st);
+    refresh_state_slots();
+}
+
+static void load_state(int slot) {
+    char path[SETTINGS_PATH_MAX], name[16], err[512], why[512];
+    slot_name(slot, name, sizeof(name));
+    update_states_ready();
+    if (!app.ui.states_ready) {
+        states_msg(true, "Can't load: %s", app.ui.states_unavailable);
+        return;
+    }
+    if (!state_path(slot, path, sizeof(path))) return;
+    if (!platform_file_exists(path)) {
+        states_msg(true, "Nothing saved in %s yet.", name);
+        return;
+    }
+    savestate_header_t h, now;
+    uint8_t* st = NULL;
+    size_t n = 0;
+    if (!savestate_load(path, &h, &st, &n, err, sizeof(err))) {
+        states_msg(true, "Can't load %s: %s", name, err);
+        return;
+    }
+    state_header_now(&now);
+    if (!savestate_compatible(&h, &now, why, sizeof(why))) {
+        states_msg(true, "Can't load %s. %s", name, why);
+    } else {
+        interrupt_replay("a save state was loaded");
+        if (core_load_state(app.core, st, n)) {
+            app.cheats_first = true;
+            app.accum = 0.0;
+            input_release_all();
+            states_msg(false, "Loaded %s (saved %s).", name, h.saved_at);
+        } else {
+            states_msg(true, "Can't load %s: it doesn't fit this machine.", name);
+        }
+    }
+    free(st);
+}
+
+static void delete_state(int slot) {
+    char path[SETTINGS_PATH_MAX], name[16];
+    if (!state_path(slot, path, sizeof(path))) return;
+    if (remove(path) == 0) states_msg(false, "Deleted %s.", slot_name(slot, name, sizeof(name)));
+    else states_msg(true, "Can't delete %s.", path);
+    refresh_state_slots();
+}
+
 static void handle_ui_actions(void) {
     ui_state_t* u = &app.ui;
     if (u->act_video_changed) {
@@ -824,6 +982,16 @@ static void handle_ui_actions(void) {
         if (app.recording) stop_recording(NULL);
         finish_playback();
     }
+    // from the menu, the message shows in the States tab, not over the game
+    if (u->act_state_save) {
+        save_state(u->state_slot);
+        u->toast_frames = 0;
+    }
+    if (u->act_state_load) {
+        load_state(u->state_slot);
+        u->toast_frames = 0;
+    }
+    if (u->act_state_delete) delete_state(u->state_slot);
     if (u->act_mods_restart && u->cart_loaded) {
         char path[SETTINGS_PATH_MAX];
         snprintf(path, sizeof(path), "%s", u->rom_path);
@@ -855,6 +1023,7 @@ static void handle_ui_actions(void) {
     u->act_confirm_play = u->act_confirm_cancel = u->act_swap_media = false;
     u->act_mods_changed = u->act_mods_rescan = u->act_mod_install = u->act_mod_install_path = false;
     u->act_mod_uninstall = u->act_mods_restart = false;
+    u->act_state_save = u->act_state_load = u->act_state_delete = false;
     u->act_replay_record = u->act_replay_stop = false;
 }
 
@@ -925,6 +1094,11 @@ static void frame_cb(void) {
         app.settings_dirty = true;
     }
 
+    if (app.ui.screen == UI_SCREEN_MENU && app.prev_screen != UI_SCREEN_MENU) {
+        app.ui.states_message[0] = 0;
+        refresh_state_slots();      // the game or mods may have changed since
+    }
+    app.prev_screen = app.ui.screen;
     ui_frame(&app.ui);
     handle_ui_actions();
 
@@ -970,6 +1144,15 @@ static void event_cb(const sapp_event* ev) {
     if (ev->type == SAPP_EVENTTYPE_KEY_DOWN && !ev->key_repeat && !capturing) {
         if (ev->key_code == SAPP_KEYCODE_F11) {
             sapp_toggle_fullscreen();
+            return;
+        }
+        const int key = (int)ev->key_code;
+        if (u->screen == UI_SCREEN_NONE && key && key == app.settings.input.quick_save_key) {
+            save_state(0);
+            return;
+        }
+        if (u->screen == UI_SCREEN_NONE && key && key == app.settings.input.quick_load_key) {
+            load_state(0);
             return;
         }
         if ((int)ev->key_code == app.settings.input.menu_key) {
@@ -1146,6 +1329,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     load_game_pack();
     load_settings();
     init_mods();
+    if (!platform_states_dir(game_id(), app.states_dir, sizeof(app.states_dir))) app.states_dir[0] = 0;
     const bool replay_ready = app.cli_replay && prepare_playback();
     if (app.cli_verify && !replay_ready) exit(2);
     if (replay_ready) use_replay_mods();

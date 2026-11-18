@@ -300,8 +300,11 @@ void binding_button(ui_state_t* st, int action, int slot, int keycode) {
         st->capture_action = action;
         st->capture_slot = slot;
     }
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && action < INPUT_ACTION_COUNT) {
-        st->settings->input.keys[action][slot] = 0;
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        input_settings_t& in = st->settings->input;
+        if (action < INPUT_ACTION_COUNT) in.keys[action][slot] = 0;
+        else if (action == UI_CAPTURE_QUICK_SAVE) in.quick_save_key = 0;
+        else if (action == UI_CAPTURE_QUICK_LOAD) in.quick_load_key = 0;
         st->act_input_changed = true;
     }
 }
@@ -377,6 +380,75 @@ void loading_overlay(const ui_state_t* st) {
     if (st->loading_seconds >= 1.0f) dim_text("%.0f s of %s time", st->loading_seconds,
                                               st->media_kind && !strcmp(st->media_kind, "Tape") ? "tape" : "loading");
     ImGui::End();
+}
+
+void toast_overlay(ui_state_t* st) {
+    st->toast_frames--;
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    const float pad = ImGui::GetFontSize();
+    ImGui::SetNextWindowPos(ImVec2(pad, ds.y - pad), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::Begin("##toast", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                 ImGuiWindowFlags_NoNav);
+    ImGui::TextUnformatted(st->toast);
+    ImGui::End();
+}
+
+void tab_states(ui_state_t* st) {
+    const input_settings_t& in = st->settings->input;
+    const char* qs = input_key_name(in.quick_save_key);
+    const char* ql = input_key_name(in.quick_load_key);
+    if (!st->states_ready) {
+        dim_text("%s", st->states_unavailable[0] ? st->states_unavailable : "Start a game to use save states.");
+    }
+    ImGui::BeginDisabled(!st->states_ready);
+    if (ImGui::BeginTable("slots", 3, ImGuiTableFlags_SizingFixedFit)) {
+        for (int i = 0; i < UI_STATE_SLOTS; i++) {
+            const ui_state_slot_t& s = st->state_slots[i];
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (i == 0) ImGui::TextUnformatted("Quick");
+            else ImGui::Text("Slot %d", i);
+            ImGui::TableNextColumn();
+            if (s.used) ImGui::TextUnformatted(s.saved_at[0] ? s.saved_at : "saved");
+            else ImGui::TextColored(kDimColor, "empty");
+            ImGui::TableNextColumn();
+            if (ImGui::Button("Save")) { st->act_state_save = true; st->state_slot = i; }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!s.used || !s.loadable);
+            if (ImGui::Button("Load")) { st->act_state_load = true; st->state_slot = i; }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!s.used);
+            if (ImGui::Button("Delete")) { st->act_state_delete = true; st->state_slot = i; }
+            ImGui::EndDisabled();
+            if (s.used && s.note[0]) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetFontSize() * 24.0f);
+                ImGui::TextColored(kErrorColor, "%s", s.note);
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndDisabled();
+    ImGui::Spacing();
+    if (qs || ql) {
+        dim_text("While playing: %s saves to Quick, %s loads it (change the keys in the Input tab).",
+                 qs ? qs : "(no key)", ql ? ql : "(no key)");
+    }
+    dim_text("A save state only loads with the same game, system ROMs and patch mods, in this version of "
+             "Breadbin-6502. Loading one stops a replay recording.");
+    if (st->states_message[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, st->states_message_is_error ? kErrorColor : kOkColor);
+        ImGui::TextWrapped("%s", st->states_message);
+        ImGui::PopStyleColor();
+    }
 }
 
 std::string palette_label(const ui_state_t* st, const char* id) {
@@ -489,6 +561,16 @@ void tab_input(ui_state_t* st) {
         ImGui::TextUnformatted("Menu");
         ImGui::TableNextColumn();
         binding_button(st, UI_CAPTURE_MENU_KEY, 0, in.menu_key);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("Quick save");
+        ImGui::TableNextColumn();
+        binding_button(st, UI_CAPTURE_QUICK_SAVE, 0, in.quick_save_key);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("Quick load");
+        ImGui::TableNextColumn();
+        binding_button(st, UI_CAPTURE_QUICK_LOAD, 0, in.quick_load_key);
         ImGui::EndTable();
     }
     ImGui::Spacing();
@@ -657,6 +739,7 @@ void menu_screen(ui_state_t* st) {
         tab("Video", tab_video);
         tab("Audio", tab_audio);
         tab("Input", tab_input);
+        tab("States", tab_states);
         tab("Mods", tab_mods);
         ImGui::EndTabBar();
     }
@@ -691,17 +774,28 @@ bool handle_capture(const sapp_event* ev, ui_state_t* st) {
     input_settings_t& in = st->settings->input;
     const int code = (int)ev->key_code;
     const char* name = input_key_name(code);
+    auto unbind_elsewhere = [&](int c) {
+        for (auto& action : in.keys) for (int& k : action) if (k == c) k = 0;
+        if (in.quick_save_key == c) in.quick_save_key = 0;
+        if (in.quick_load_key == c) in.quick_load_key = 0;
+    };
     if (st->capture_action == UI_CAPTURE_MENU_KEY) {
         if (name) {
-            // the menu key can't also be a joystick key
-            for (auto& action : in.keys) for (int& k : action) if (k == code) k = 0;
+            // the menu key can't also be a joystick or save-state key
+            unbind_elsewhere(code);
             in.menu_key = code;
+            st->act_input_changed = true;
+        }
+    } else if (st->capture_action == UI_CAPTURE_QUICK_SAVE || st->capture_action == UI_CAPTURE_QUICK_LOAD) {
+        if (name && code != SAPP_KEYCODE_ESCAPE && code != in.menu_key && code != SAPP_KEYCODE_F11) {
+            unbind_elsewhere(code);
+            (st->capture_action == UI_CAPTURE_QUICK_SAVE ? in.quick_save_key : in.quick_load_key) = code;
             st->act_input_changed = true;
         }
     } else if (code == SAPP_KEYCODE_ESCAPE || code == in.menu_key) {
         // cancel (the menu key stays reserved for the menu)
     } else if (name && code != SAPP_KEYCODE_F11) {
-        for (auto& action : in.keys) for (int& k : action) if (k == code) k = 0;
+        unbind_elsewhere(code);
         in.keys[st->capture_action][st->capture_slot] = code;
         st->act_input_changed = true;
     }
@@ -805,6 +899,7 @@ void ui_frame(ui_state_t* st) {
     } else {
         g.browser_open = false;
         if (st->loading) loading_overlay(st);
+        else if (st->toast_frames > 0 && st->toast[0]) toast_overlay(st);
     }
 }
 

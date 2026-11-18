@@ -31,6 +31,17 @@ typedef enum {
 
 #define UI_CAPTURE_NONE (-1)
 #define UI_CAPTURE_MENU_KEY INPUT_ACTION_COUNT
+#define UI_CAPTURE_QUICK_SAVE (INPUT_ACTION_COUNT + 1)
+#define UI_CAPTURE_QUICK_LOAD (INPUT_ACTION_COUNT + 2)
+
+#define UI_STATE_SLOTS 6        // slot 0 = quick save (hotkeys), 1-5 in the States tab
+
+typedef struct {
+    bool used;                  // a file exists
+    bool loadable;              // it fits the running game (else note says why)
+    char saved_at[32];
+    char note[384];             // why it can't be loaded, or a read error
+} ui_state_slot_t;
 
 typedef struct {
     ui_screen_t screen;
@@ -99,8 +110,19 @@ typedef struct {
     char replay_message[SETTINGS_PATH_MAX + 256];
     bool replay_message_is_error;
     bool act_replay_record, act_replay_stop;
+    // save states
+    bool states_ready;          // a game is running and has finished loading
+    char states_unavailable[160];   // when not ready: why (shown in the States tab)
+    ui_state_slot_t state_slots[UI_STATE_SLOTS];
+    char states_message[SETTINGS_PATH_MAX + 256];
+    bool states_message_is_error;
+    bool act_state_save, act_state_load, act_state_delete;
+    int state_slot;
+    // short notice shown over the game (e.g. "Saved"), counted down in display frames
+    char toast[160];
+    int toast_frames;
     // key capture for rebinding
-    int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY
+    int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY / _QUICK_*
     int capture_slot;
 } ui_state_t;
 
