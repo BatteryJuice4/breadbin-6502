@@ -21,3 +21,6 @@ compile_commands.json
 *.swp
 .DS_Store
 *.bbreplay
+
+# Recompiled C is derived from the ROM: never commit it (docs/RECOMP_PLAN.md)
+generated/

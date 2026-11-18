@@ -73,6 +73,7 @@ struct core {
     void* audio_user;
     int audio_sample_rate;
     uint8_t rom_kernal[0x2000], rom_basic[0x2000], rom_chargen[0x1000];
+    uint32_t* coverage;         // CORE_COVERAGE_SIZE masks while tracing, else NULL
     uint8_t rom_1541[0x4000];
     bool has_1541;
     core_disk_t* disk;          // caller's disk (must stay valid while inserted)
@@ -198,6 +199,7 @@ core_t* core_create(const core_desc_t* desc) {
 void core_destroy(core_t* core) {
     if (core) {
         c64_discard(&core->sys);
+        free(core->coverage);
         core_free(core);
     }
 }
@@ -271,6 +273,7 @@ static uint64_t core_on_fetch(core_t* core, uint64_t pins) {
         for (int i = 0; i < core->num_watches; i++) {
             if (core->watch_pc[i] == addr) core->watch_hits[i]++;
         }
+        if (core->coverage) core->coverage[addr] |= 1u << core_memory_config(core);
         core->load_rts = (addr == CORE_KERNAL_LOAD) && core->file_fn && core_trap_load(core);
     }
     if (core->load_rts && addr == CORE_KERNAL_LOAD) {
@@ -314,6 +317,33 @@ void core_run_frame(core_t* core) {
     sys->pins = pins;
     kbd_update(&sys->kbd, core->frame_us);
     core->frame_count++;
+}
+
+int core_memory_config(const core_t* core) {
+    const c64_t* sys = &core->sys;
+    return (sys->cpu_port & 7) | (sys->exp_exrom ? 8 : 0) | (sys->exp_game ? 16 : 0);
+}
+
+bool core_coverage_enable(core_t* core, bool on) {
+    if (!on) {
+        free(core->coverage);
+        core->coverage = NULL;
+        return true;
+    }
+    if (!core->coverage) core->coverage = calloc(CORE_COVERAGE_SIZE, sizeof(uint32_t));
+    return core->coverage != NULL;
+}
+
+const uint32_t* core_coverage(const core_t* core) {
+    return core->coverage;
+}
+
+void core_coverage_clear(core_t* core) {
+    if (core->coverage) memset(core->coverage, 0, CORE_COVERAGE_SIZE * sizeof(uint32_t));
+}
+
+uint64_t core_cycle_count(const core_t* core) {
+    return core->frame_count * core->cycles_per_frame;
 }
 
 uint64_t core_frame_count(const core_t* core) {

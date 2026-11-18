@@ -30,6 +30,14 @@ Repo-specific rules:
   replays). `tests/test_drive.c` needs `BB_TEST_ROM_DIR` with a 1541 ROM, else it's
   skipped (CI). The drive is part of determinism, save states (never its ROM) and replay
   fingerprints (its RAM).
+- Recompilation readiness (workspace `docs/RECOMP_PLAN.md`): the machine cycle in the
+  patched `c64.h` is split into `_c64_tick_devices` / CPU / `_c64_tick_bus`, so another
+  CPU can drive the same chips (the contract is in the comment above it); keep new
+  hardware work on the bus side of that seam. Coverage tracing: `core_coverage_*`
+  (opcode fetches x memory configuration, hooked in `core_on_fetch`), files in
+  `src/debug/coverage.c` (`.bbcov`), `--coverage DIR` in `main.c`, `tests/test_coverage.c`.
+  Tracing only observes: never in states, replays or fingerprints. `generated/` is
+  git-ignored (recompiled C is ROM-derived).
 - Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS
   patches, `modset` = validation, load order, cheats, install). Format: `docs/mods.md`.
   Packages are untrusted input: keep the size caps and the data-files-only rule.

@@ -186,6 +186,22 @@ int core_add_watch(core_t* core, uint16_t pc);
 uint32_t core_watch_hits(const core_t* core, int id);
 void core_clear_watches(core_t* core);
 
+// ---- Code coverage (analysis for the recompiler, docs/RECOMP_PLAN.md) ----------
+// Records every address the C64's CPU fetched an opcode from, and under which memory
+// configuration: one 32-bit mask per address, bit n set = fetched while configuration
+// n was mapped, n = CPU port bits 0-2 (LORAM, HIRAM, CHAREN) | EXROM asserted << 3 |
+// GAME asserted << 4. (Bank-switching cartridges will add their bank once supported.)
+// Only observes: never part of save states, replays or fingerprints. The map
+// survives core_reset (it accumulates until cleared). The 1541's CPU isn't traced.
+#define CORE_COVERAGE_SIZE 0x10000
+bool core_coverage_enable(core_t* core, bool on);   // false: out of memory
+const uint32_t* core_coverage(const core_t* core);  // CORE_COVERAGE_SIZE masks, NULL when off
+void core_coverage_clear(core_t* core);
+// The memory configuration number (as above) mapped right now.
+int core_memory_config(const core_t* core);
+// CPU cycles run since the last reset (or since the state loaded was reset).
+uint64_t core_cycle_count(const core_t* core);
+
 // ---- write watches (script mods) ---------------------------------------------
 // Record CPU writes to chosen addresses. Events are collected during a frame and
 // read after it (in order), so nothing runs in the middle of emulation. A frame

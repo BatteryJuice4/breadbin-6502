@@ -202,7 +202,9 @@ default: the game pack's, else PAL),
 `--frames N` (quit after N frames, for testing), `--replay FILE` (play a diagnostic replay
 and compare every frame), `--verify` (with `--replay`: no window, exit code 0 if every frame
 matched, 1 if not), `--record FILE` and `--headless` (record a replay without a window,
-for regression tests). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
+for regression tests), `--no-drive` (disks through the instant LOAD only), `--coverage DIR`
+(record which addresses run as code, merged into `DIR/<game sha1>.bbcov`; analysis for a
+future recompiler, also works with `--replay`). Set `BREADBIN_NO_NATIVE_DIALOG=1` to
 always use the built-in file browser.
 
 ## License

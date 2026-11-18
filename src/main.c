@@ -29,6 +29,7 @@
 #include "rom/rom_file.h"
 #include "rom/sysroms.h"
 #include "state/disksave.h"
+#include "debug/coverage.h"
 #include "settings/settings.h"
 #include "state/savestate.h"
 #include "ui/ui.h"
@@ -99,6 +100,8 @@ static struct {
     const char* cli_replay;                 // --replay FILE
     bool cli_verify;                        // --verify: play the replay without a window, then exit
     const char* cli_record;                 // --record FILE: record from the start, save there on exit
+    const char* cli_coverage;               // --coverage DIR: code coverage maps, one per game SHA-1
+    char coverage_sha1[41];                 // the game the core's coverage map belongs to
     bool cli_headless;                      // --headless: run --frames N frames without a window, then exit
     bool cli_no_drive;                      // --no-drive: no 1541 even with its ROM installed
     char disks_dir[SETTINGS_PATH_MAX];      // save copies of written disks ("" = no config dir)
@@ -642,6 +645,35 @@ static void remember_rom(const char* path) {
     }
 }
 
+// --coverage: merge the core's map into <dir>/<sha1>.bbcov and start over (for
+// the next game, or because the session ends).
+static void coverage_flush(void) {
+    const uint32_t* map = app.core ? core_coverage(app.core) : NULL;
+    if (!app.cli_coverage || !map || !app.coverage_sha1[0]) return;
+    char path[1100], err[1300];
+    if (!coverage_path(app.cli_coverage, app.coverage_sha1, path, sizeof(path))) {
+        fprintf(stderr, "breadbin-6502: coverage: bad folder or game SHA-1\n");
+    } else if (coverage_merge_save(path, app.coverage_sha1, map, err, sizeof(err))) {
+        fprintf(stderr, "breadbin-6502: coverage: %u addresses ran as code this session; merged into %s\n",
+                coverage_count(map), path);
+    } else {
+        fprintf(stderr, "breadbin-6502: coverage: %s\n", err);
+    }
+    core_coverage_clear(app.core);
+}
+
+// A game was loaded: trace its code from here on (with --coverage).
+static void coverage_begin(const char* sha1) {
+    if (!app.cli_coverage) return;
+    coverage_flush();
+    if (!core_coverage_enable(app.core, true)) {
+        fprintf(stderr, "breadbin-6502: coverage: out of memory\n");
+        return;
+    }
+    core_coverage_clear(app.core);
+    snprintf(app.coverage_sha1, sizeof(app.coverage_sha1), "%s", sha1);
+}
+
 static void insert_cart(const cart_t* cart, const char* path, rom_status_t status, bool remember) {
     interrupt_replay("another game was loaded");
     eject_media();
@@ -665,6 +697,7 @@ static void insert_cart(const cart_t* cart, const char* path, rom_status_t statu
     set_title(u->rom_name);
     if (remember) remember_rom(path);
     app.cheats_first = true;
+    coverage_begin(cart->sha1);
     enter_game();
 }
 
@@ -692,6 +725,7 @@ static void insert_media(media_image_t* img, const char* path, rom_status_t stat
     fprintf(stderr, "breadbin-6502: %s \"%s\" (sha1 %s)\n", mode, u->rom_name, app.media.sha1);
     set_title(u->rom_name);
     if (remember) remember_rom(path);
+    coverage_begin(app.media.sha1);
     boot_media();
     enter_game();
 }
@@ -1380,6 +1414,7 @@ static void cleanup_cb(void) {
     eject_media();
     scriptset_destroy(app.scripts, app.core);
     pluginset_destroy(app.plugins, app.core);   // plugins stop while the machine still exists
+    coverage_flush();
     core_destroy(app.core);
     audio_shutdown();
     gamepad_shutdown();
@@ -1413,7 +1448,9 @@ static void usage(void) {
         "                    exit (0 = every frame matched, 1 = it went differently)\n"
         "  --record FILE     record a replay from the start of the game, saved to FILE on exit\n"
         "  --headless        run --frames N emulated frames without a window or input, then\n"
-        "                    exit (testing; e.g. with --record to make a regression replay)\n");
+        "                    exit (testing; e.g. with --record to make a regression replay)\n"
+        "  --coverage DIR    trace which addresses run as code (analysis for recompiling),\n"
+        "                    merged into DIR/<game sha1>.bbcov on exit; works with --replay\n");
 }
 
 static bool parse_args(int argc, char* argv[]) {
@@ -1432,6 +1469,7 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--verify"))        { app.cli_verify = true; }
         else if (!strcmp(a, "--record") && v)   { app.cli_record = v; i++; }
         else if (!strcmp(a, "--headless"))      { app.cli_headless = true; }
+        else if (!strcmp(a, "--coverage") && v) { app.cli_coverage = v; i++; }
         else if (!strcmp(a, "--no-drive"))      { app.cli_no_drive = true; }
         else if (a[0] != '-' && !app.cli_cart)  { app.cli_cart = a; }
         else { usage(); return false; }
@@ -1624,11 +1662,13 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         if (!u->cart_loaded) exit(2);
         for (long i = 0; i < app.quit_after_frames; i++) step_frame();
         stop_recording(NULL);
+        coverage_flush();
         exit(0);
     }
     if (app.cli_verify) {
         // headless: every frame of the replay, including disk/tape loading
         while (app.playing) step_frame();
+        coverage_flush();
         exit(app.player.diverged ? 1 : 0);
     }
 

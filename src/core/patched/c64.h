@@ -586,7 +586,24 @@ void c64_reset(c64_t* sys) {
     m6581_reset(&sys->sid);
 }
 
-static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
+/*  BREADBIN PATCH: the machine cycle is split so that something other than the
+    m6502 interpreter can drive the same chips (a recompiled CPU, see
+    docs/RECOMP_PLAN.md in the workspace):
+
+        _c64_tick_devices(sys);             // datasette, 1541 (before the CPU)
+        pins = <CPU: one bus cycle>(pins);  // address/data/RW/SYNC pins out
+        pins = _c64_tick_bus(sys, pins);    // decode, VIC, SID, CIAs, memory
+
+    A CPU driving it must issue every bus cycle of every instruction (dummy reads
+    included), honour RDY on read cycles (bad lines, sprite DMA), take IRQ/NMI from
+    the returned pins, set SYNC on opcode fetches (the core's traps, watches and
+    coverage hook on it), and answer the 6510 I/O port ($00/$01) through
+    m6510_iorq() on sys->cpu (that port is part of the CPU chip).
+    _c64_tick() is exactly the three steps with the interpreter.
+*/
+static uint64_t _c64_tick_bus(c64_t* sys, uint64_t pins);
+
+static inline void _c64_tick_devices(c64_t* sys) {
     // FIXME: move datasette and floppy tick to end
     if (sys->c1530.valid) {
         c1530_tick(&sys->c1530);
@@ -604,8 +621,16 @@ static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
         }
     }
 
+}
+
+static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
+    _c64_tick_devices(sys);
     // tick the CPU
     pins = m6502_tick(&sys->cpu, pins);
+    return _c64_tick_bus(sys, pins);
+}
+
+static uint64_t _c64_tick_bus(c64_t* sys, uint64_t pins) {
     const uint16_t addr = M6502_GET_ADDR(pins);
 
     // those pins are set each tick by the CIAs and VIC

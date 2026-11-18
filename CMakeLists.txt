@@ -132,6 +132,7 @@ add_library(bb_core STATIC
     src/replay/replay.c
     src/state/savestate.c
     src/state/disksave.c
+    src/debug/coverage.c
     src/mods/script.c
     src/mods/plugin.c
     ${BB_GEN_DIR}/openroms_kernal.c
@@ -282,6 +283,10 @@ if(BB_BUILD_TESTS)
     target_compile_options(test_gamepad PRIVATE ${BB_WARNINGS})
     add_test(NAME gamepad COMMAND test_gamepad)
 
+    add_executable(test_coverage tests/test_coverage.c)
+    target_link_libraries(test_coverage PRIVATE bb_core)
+    target_compile_options(test_coverage PRIVATE ${BB_WARNINGS})
+    add_test(NAME coverage COMMAND test_coverage WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
     add_executable(test_state tests/test_state.c)
     target_link_libraries(test_state PRIVATE bb_core)
     target_compile_options(test_state PRIVATE ${BB_WARNINGS})
