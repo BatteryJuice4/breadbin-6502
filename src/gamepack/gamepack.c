@@ -264,7 +264,8 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
         if (tu_get_string(v, "filter", buf, sizeof(buf), &w, "video")) {
             if (!strcmp(buf, "nearest")) d.video.filter = VIDEO_FILTER_NEAREST;
             else if (!strcmp(buf, "smooth")) d.video.filter = VIDEO_FILTER_LINEAR;
-            else tu_warn(&w, "[video] filter: expected \"nearest\" or \"smooth\"");
+            else if (!strcmp(buf, "crt")) d.video.filter = VIDEO_FILTER_CRT;
+            else tu_warn(&w, "[video] filter: expected \"nearest\", \"smooth\" or \"crt\"");
         }
         if (tu_get_string(v, "palette", p.palette, sizeof(p.palette), &w, "video")) {
             if (palette_id_valid(p.palette)) snprintf(d.video.palette, sizeof(d.video.palette), "%s", p.palette);

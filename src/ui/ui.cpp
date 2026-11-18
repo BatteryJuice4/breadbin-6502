@@ -485,8 +485,9 @@ void tab_video(ui_state_t* st) {
     ch |= ImGui::Checkbox("Aspect correction (C64 pixels aren't square)", &v.aspect_correction);
     ch |= ImGui::Checkbox("Crop border", &v.crop_border);
     int filter = (int)v.filter;
-    const char* filters[] = { "Nearest (sharp)", "Smooth" };
-    if (ImGui::Combo("Filter", &filter, filters, 2)) { v.filter = (video_filter_t)filter; ch = true; }
+    const char* filters[] = { "Nearest (sharp)", "Smooth", "CRT (scanlines)" };
+    if (ImGui::Combo("Filter", &filter, filters, 3)) { v.filter = (video_filter_t)filter; ch = true; }
+    if (v.filter == VIDEO_FILTER_CRT) dim_text("Scanlines show from about 3x size; fullscreen looks best.");
     // built-in palettes, then enabled palette mods
     std::string current = palette_label(st, v.palette);
     if (ImGui::BeginCombo("Palette", current.c_str())) {

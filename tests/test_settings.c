@@ -124,6 +124,10 @@ static void test_partial_and_invalid(void) {
     CHECK(parse(&s, "[video]\npalette = \"psychedelic\"\n") && !strcmp(s.video.palette, PALETTE_DEFAULT) &&
           strstr(warns, "psychedelic"), "unknown palette accepted");
     CHECK(parse(&s, "[video]\npalette = \"pepto\"\n") && !strcmp(s.video.palette, "pepto"), "pepto rejected");
+    CHECK(parse(&s, "[video]\nfilter = \"crt\"\n") && s.video.filter == VIDEO_FILTER_CRT, "crt filter rejected");
+    char out[4096];
+    settings_serialize(&s, out, sizeof(out));
+    CHECK(strstr(out, "filter = \"crt\"") != NULL, "crt filter not written");
 
     // Syntax error: settings untouched
     settings_default(&s);

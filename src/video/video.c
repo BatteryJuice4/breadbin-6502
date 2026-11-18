@@ -1,4 +1,5 @@
 #include "video/video.h"
+#include "video/crt.h"
 #include "video/palettes.h"
 
 #include "sokol_app.h"
@@ -23,6 +24,8 @@ static struct {
     sg_sampler smp_nearest;
     sg_sampler smp_linear;
     video_settings_t settings;
+    bool crt_pending;           // this frame's picture goes through the CRT shader
+    crt_frame_t crt;
     uint32_t rgba[VIDEO_MAX_W * VIDEO_MAX_H];
 } vs;
 
@@ -40,6 +43,7 @@ void video_init(void) {
         .logger.func = slog_func,
     });
     sgl_setup(&(sgl_desc_t){ .logger.func = slog_func });
+    crt_init();
     vs.img = sg_make_image(&(sg_image_desc){
         .width = VIDEO_MAX_W,
         .height = VIDEO_MAX_H,
@@ -62,6 +66,7 @@ void video_init(void) {
 }
 
 void video_shutdown(void) {
+    crt_shutdown();
     sgl_shutdown();
     sg_shutdown();
 }
@@ -92,6 +97,7 @@ void video_draw(const core_video_t* fb, bool dim) {
     sgl_defaults();
     sgl_matrix_mode_projection();
     sgl_ortho(0.0f, win_w, win_h, 0.0f, -1.0f, 1.0f);
+    vs.crt_pending = false;
     if (!fb || !fb->pixels || fb->width > VIDEO_MAX_W || fb->height > VIDEO_MAX_H) {
         return;
     }
@@ -125,6 +131,15 @@ void video_draw(const core_video_t* fb, bool dim) {
     const float u1 = (float)sw / VIDEO_MAX_W, v1 = (float)sh / VIDEO_MAX_H;
     const float c = dim ? 0.35f : 1.0f;
 
+    if (vs.settings.filter == VIDEO_FILTER_CRT) {
+        vs.crt = (crt_frame_t){
+            .texture = vs.view, .tex_w = VIDEO_MAX_W, .tex_h = VIDEO_MAX_H,
+            .src_w = (float)sw, .src_h = (float)sh,
+            .x = x0, .y = y0, .w = w, .h = h, .win_w = win_w, .win_h = win_h, .dim = c,
+        };
+        vs.crt_pending = true;
+        return;
+    }
     sgl_enable_texture();
     sgl_texture(vs.view, vs.settings.filter == VIDEO_FILTER_LINEAR ? vs.smp_linear : vs.smp_nearest);
     sgl_begin_quads();
@@ -142,6 +157,7 @@ void video_present(void (*overlay)(void)) {
         },
         .swapchain = sglue_swapchain(),
     });
+    if (vs.crt_pending) crt_draw(&vs.crt);
     sgl_draw();
     if (overlay) {
         overlay();

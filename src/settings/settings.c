@@ -109,7 +109,8 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         if (f.type == TOML_STRING) {
             if (!strcmp(f.u.s, "nearest")) t.video.filter = VIDEO_FILTER_NEAREST;
             else if (!strcmp(f.u.s, "smooth")) t.video.filter = VIDEO_FILTER_LINEAR;
-            else tu_warn(&w, "[video] filter: expected \"nearest\" or \"smooth\"");
+            else if (!strcmp(f.u.s, "crt")) t.video.filter = VIDEO_FILTER_CRT;
+            else tu_warn(&w, "[video] filter: expected \"nearest\", \"smooth\" or \"crt\"");
         } else if (f.type != TOML_UNKNOWN) {
             tu_warn(&w, "[video] filter: expected a string");
         }
@@ -226,7 +227,8 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "integer_scaling = %s\n", s->video.integer_scaling ? "true" : "false");
     put(&o, "aspect_correction = %s\n", s->video.aspect_correction ? "true" : "false");
     put(&o, "crop_border = %s\n", s->video.crop_border ? "true" : "false");
-    put(&o, "filter = \"%s\"\n", s->video.filter == VIDEO_FILTER_LINEAR ? "smooth" : "nearest");
+    put(&o, "filter = \"%s\"\n", s->video.filter == VIDEO_FILTER_LINEAR ? "smooth" :
+                                  s->video.filter == VIDEO_FILTER_CRT ? "crt" : "nearest");
     put(&o, "palette = ");
     put_string(&o, s->video.palette);
     put(&o, "\n");

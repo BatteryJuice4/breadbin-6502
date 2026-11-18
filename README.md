@@ -45,7 +45,8 @@ Press **Esc** during play to pause and open the menu:
 - **ROM:** the current game, its type and SHA-1, Select ROM…, and Swap disk/tape… for
   games on several disks or tapes
 - **Video:** window scale (applies on the next launch), fullscreen, integer scaling,
-  aspect correction, border crop, sharp or smooth filtering, colour palette
+  aspect correction, border crop, filter (sharp, smooth, or CRT: scanlines and a faint
+  RGB mask, strongest from about 3x size), colour palette
   (Colodore, Pepto, or one from a palette mod)
 - **Audio:** volume, mute, latency
 - **Input:** joystick port (1 or 2), bindings for the joystick (four keys or gamepad

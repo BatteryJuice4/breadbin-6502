@@ -70,7 +70,7 @@ default_scale     = 3      # window scale 1-8
 integer_scaling   = true
 aspect_correction = true
 crop_border       = false  # show only the 320x200 picture
-filter            = "nearest"   # "nearest" | "smooth"
+filter            = "nearest"   # "nearest" | "smooth" | "crt" (launcher 0.4.0+)
 palette           = "colodore"  # default palette: "colodore", "pepto", or "mod:<mod id>"
 extended_view_max_width = 0     # reserved: 0 = no extended (widescreen) view
 ```

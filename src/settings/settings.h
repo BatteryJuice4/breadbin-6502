@@ -21,6 +21,7 @@ extern "C" {
 typedef enum {
     VIDEO_FILTER_NEAREST = 0,
     VIDEO_FILTER_LINEAR,
+    VIDEO_FILTER_CRT,       // scanlines + RGB mask (video/crt.c)
 } video_filter_t;
 
 typedef struct {

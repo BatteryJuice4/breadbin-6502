@@ -138,6 +138,7 @@ endif()
 add_executable(breadbin-6502 WIN32
     src/main.c
     src/video/video.c
+    src/video/crt.c
     src/audio/audio.c
     src/input/input.c
     src/ui/ui.cpp

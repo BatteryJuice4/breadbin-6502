@@ -30,6 +30,9 @@ Repo-specific rules:
   (Windows, XInput DLL loaded at run time; not compilable on the Linux dev machine, CI
   builds it), none elsewhere. Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
   named `Gamepad_*`; `settings_add_default_gamepad` fills actions that list none.
+- CRT filter: `src/video/crt.c`, its own sokol_gfx pipeline with hand-written GLSL 410 /
+  GLSL ES 300 / MSL (keep the three in step; MSL isn't compiled on the Linux dev machine).
+  Display only, drawn in `video_present` before sokol_gl.
 - Save states: `core_save_state`/`core_load_state` (chips snapshot, ROM arrays zeroed and
   the 8 MB tape buffer left out: **a state must never contain ROM data**, `test_core`
   checks it), files in `src/state/` (`.bbstate`, header says what the state depends on,
