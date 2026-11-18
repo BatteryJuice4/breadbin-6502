@@ -66,6 +66,9 @@ right = "Right"
 fire  = ["Space", "LCtrl"] # up to two keys per action
 menu  = "Escape"           # opens the launcher menu
 
+[input.c64_keys]           # gamepad buttons that press C64 keys (launcher 0.7.0+)
+F1 = "Gamepad_X"           # e.g. a game that starts with F1
+
 [video]                    # display defaults (players can change them)
 default_scale     = 3      # window scale 1-8
 integer_scaling   = true
@@ -107,6 +110,15 @@ and the left stick `Gamepad_LStick_Up`/`Down`/`Left`/`Right`. An action that lis
 gamepad button gets the defaults (d-pad and left stick for the directions, A and B for
 fire), so a pack that only lists keys still plays with a pad. Start (or Guide) always
 opens the menu.
+
+`[input.c64_keys]` (launcher 0.7.0+) lets gamepad players press the C64 keys a game needs
+outside the joystick, such as F1 to start or F3 for two players: each entry is a C64 key
+name with one gamepad button or a list of them. C64 key names: `F1`-`F8`, `Space`,
+`Return`, `RunStop`, `Restore`, `Del`, `Home`, the letters `A`-`Z` and digits `0`-`9`.
+Only gamepad buttons can be listed (keyboard players type C64 keys directly), and not
+Start or Guide (they open the menu). A button bound to a key shouldn't also be a joystick
+button. The Input tab lists these bindings; players can change them in their settings
+file (`[input.c64_keys]`, same format).
 
 ### ROM hashes
 

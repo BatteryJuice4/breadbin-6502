@@ -232,8 +232,9 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
 
     toml_datum_t in = toml_get(top, "input");
     if (in.type == TOML_TABLE) {
-        static const char* const in_keys[] = { "default", NULL };
+        static const char* const in_keys[] = { "default", "c64_keys", NULL };
         check_keys(in, in_keys, &w, "input");
+        tu_get_c64_keys(in, d.input.pad_c64_key, &w, "input");
         toml_datum_t def = toml_get(in, "default");
         if (def.type == TOML_TABLE) {
             static const char* const def_keys[] = { "up", "down", "left", "right", "fire", "menu", NULL };

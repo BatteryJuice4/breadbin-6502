@@ -1,5 +1,6 @@
 #include "input/keynames.h"
 
+#include "core/core.h"
 #include "platform/gamepad.h"
 #include "sokol_app.h"  // keycode enum only (no implementation needed)
 
@@ -102,4 +103,38 @@ int input_key_from_name(const char* name) {
         if (name_eq(key_aliases[i].name, name)) return key_aliases[i].code;
     }
     return 0;
+}
+
+static const struct { const char* name; int key; } c64_special[] = {
+    { "F1", CORE_KEY_F1 }, { "F2", CORE_KEY_F2 }, { "F3", CORE_KEY_F3 }, { "F4", CORE_KEY_F4 },
+    { "F5", CORE_KEY_F5 }, { "F6", CORE_KEY_F6 }, { "F7", CORE_KEY_F7 }, { "F8", CORE_KEY_F8 },
+    { "Space", CORE_KEY_SPACE }, { "Return", CORE_KEY_RETURN }, { "RunStop", CORE_KEY_STOP },
+    { "Restore", CORE_KEY_RESTORE }, { "Del", CORE_KEY_DEL }, { "Home", CORE_KEY_HOME },
+};
+
+int input_c64_key_from_name(const char* name) {
+    if (!name) return 0;
+    for (size_t i = 0; i < sizeof(c64_special) / sizeof(c64_special[0]); i++) {
+        if (name_eq(name, c64_special[i].name)) return c64_special[i].key;
+    }
+    if (name[0] && !name[1]) {
+        const char c = (char)toupper((unsigned char)name[0]);
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return c;   // unshifted letters are 'A'..'Z'
+    }
+    return 0;
+}
+
+const char* input_c64_key_name(int c64_key) {
+    for (size_t i = 0; i < sizeof(c64_special) / sizeof(c64_special[0]); i++) {
+        if (c64_special[i].key == c64_key) return c64_special[i].name;
+    }
+    static char one[16][2];
+    static int next;
+    if ((c64_key >= 'A' && c64_key <= 'Z') || (c64_key >= '0' && c64_key <= '9')) {
+        char* s = one[next++ & 15];
+        s[0] = (char)c64_key;
+        s[1] = 0;
+        return s;
+    }
+    return NULL;
 }

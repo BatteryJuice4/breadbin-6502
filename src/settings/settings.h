@@ -8,6 +8,7 @@
     Invalid values are ignored (with a warning collected in `warnings`), never fatal.
 */
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
@@ -63,6 +64,7 @@ typedef struct {
     int joystick_port;                              // 1 or 2
     int menu_key;                                   // opens/closes the launcher menu
     int quick_save_key, quick_load_key;             // save states, 0 = none
+    uint8_t pad_c64_key[32];                        // C64 key each gamepad button presses (0 = none)
 } input_settings_t;
 
 typedef struct {

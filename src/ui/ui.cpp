@@ -657,6 +657,18 @@ void tab_input(ui_state_t* st) {
     if (!strcmp(gamepad_backend(), "none")) dim_text("Gamepads aren't supported on this system yet.");
     else if (!pads) dim_text("No gamepad connected. Plug one in at any time.");
     dim_text("Gamepad: Start opens the menu, which the d-pad, A (select), B (back) and LB/RB (tabs) control.");
+    {
+        // Buttons that press C64 keys ([input.c64_keys], usually from the game pack).
+        std::string keys;
+        for (int b = 0; b < 32; b++) {
+            const char* c64 = input_c64_key_name(in.pad_c64_key[b]);
+            const char* pad = input_key_name(INPUT_GAMEPAD_BASE + b);
+            if (!c64 || !pad) continue;
+            if (!keys.empty()) keys += ", ";
+            keys += std::string(pad + 8) + " = " + c64;    // "X = F1" (without "Gamepad_")
+        }
+        if (!keys.empty()) ImGui::TextWrapped("Gamepad buttons for C64 keys: %s", keys.c_str());
+    }
     ImGui::Spacing();
     if (ImGui::Button("Reset controls to defaults##input") && st->defaults) {
         in = st->defaults->input;

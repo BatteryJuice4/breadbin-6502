@@ -1,6 +1,8 @@
 // Unit tests for game pack parsing (game.toml), version checks and ROM hash matching.
 #include "gamepack/gamepack.h"
 #include "input/keynames.h"
+#include "core/core.h"
+#include "platform/gamepad.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +37,9 @@ static const char* full_pack =
     "right = \"Right\"\n"
     "fire = [\"Space\", \"LCtrl\", \"Gamepad_A\"]\n"
     "menu = \"F12\"\n"
+    "[input.c64_keys]\n"
+    "F1 = \"Gamepad_X\"\n"
+    "f3 = [\"Gamepad_Y\", \"Gamepad_RB\"]\n"
     "[video]\n"
     "default_scale = 4\n"
     "crop_border = true\n"
@@ -64,6 +69,8 @@ static void test_full(void) {
           d.input.keys[INPUT_FIRE][2] == input_key_from_name("Gamepad_A") && d.input.keys[INPUT_FIRE][3] == 0,
           "fire bindings");
     CHECK(d.input.menu_key == input_key_from_name("F12"), "menu key");
+    CHECK(d.input.pad_c64_key[GAMEPAD_X] == CORE_KEY_F1 && d.input.pad_c64_key[GAMEPAD_Y] == CORE_KEY_F3 &&
+          d.input.pad_c64_key[GAMEPAD_RB] == CORE_KEY_F3 && d.input.pad_c64_key[GAMEPAD_A] == 0, "c64_keys");
     CHECK(d.video.window_scale == 4 && d.video.crop_border && d.video.filter == VIDEO_FILTER_LINEAR, "video defaults");
     CHECK(d.video.integer_scaling, "untouched default kept");
     CHECK(strstr(warns, "Gamepad_A") == NULL, "Gamepad_A is a valid binding now: %s", warns);

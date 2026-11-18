@@ -14,3 +14,9 @@ const char* input_key_name(int keycode);
 // Case-insensitive lookup; also accepts a few aliases ("Ctrl" = "LCtrl", "Return" = "Enter").
 // Returns 0 if unknown.
 int input_key_from_name(const char* name);
+
+// C64 keys that gamepad buttons can press ([input.c64_keys]): "F1".."F8", "Space",
+// "Return", "RunStop", "Restore", "Del", "Home", "A".."Z" and "0".."9". Values are
+// core key codes (CORE_KEY_* / the unshifted character). 0 = unknown.
+int input_c64_key_from_name(const char* name);
+const char* input_c64_key_name(int c64_key);       // NULL if it has no name

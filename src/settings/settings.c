@@ -154,6 +154,7 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         if (!explicit_pad) settings_add_default_gamepad(&t.input);
         tu_get_keys(in, "quick_save", &t.input.quick_save_key, 1, &w, "input");
         tu_get_keys(in, "quick_load", &t.input.quick_load_key, 1, &w, "input");
+        tu_get_c64_keys(in, t.input.pad_c64_key, &w, "input");
     }
 
     toml_datum_t mods = toml_get(r.toptab, "mods");
@@ -261,6 +262,21 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "gamepad_binds = true   # the lists above include gamepad buttons (\"Gamepad_A\", ...)\n");
     put_keys(&o, "quick_save", &s->input.quick_save_key, 1);
     put_keys(&o, "quick_load", &s->input.quick_load_key, 1);
+    put(&o, "\n\n[input.c64_keys]   # gamepad buttons that press C64 keys\n");
+    bool done[32] = { false };
+    for (int b = 0; b < 32; b++) {
+        const uint8_t key = s->input.pad_c64_key[b];
+        const char* c64 = input_c64_key_name(key);
+        if (done[b] || !c64) continue;
+        int codes[32], n = 0;       // every button that presses this key, as one list
+        for (int o2 = b; o2 < 32; o2++) {
+            if (s->input.pad_c64_key[o2] == key) {
+                codes[n++] = INPUT_GAMEPAD_BASE + o2;
+                done[o2] = true;
+            }
+        }
+        put_keys(&o, c64, codes, n);
+    }
     put(&o, "\n\n[mods]\n# enabled mods, in load order\nenabled = [");
     for (int i = 0; i < s->mods_enabled_count; i++) {
         put(&o, i ? ", " : "");

@@ -184,12 +184,42 @@ static void test_input_path(void) {
     CHECK(joy_after(BIT(GAMEPAD_A), true) == 0, "A no longer bound");
 }
 
+// [input.c64_keys]: a bound button presses the C64 key through the key queue,
+// releases it, and lets go of it when the menu opens.
+static void test_c64_keys(void) {
+    settings_t s;
+    settings_default(&s);
+    s.input.pad_c64_key[GAMEPAD_X] = CORE_KEY_F1;
+    input_init(&s.input);
+    replay_input_t in;
+    input_collect(&in);     // the first frame sends input_init's release-all
+    input_set_gamepad(BIT(GAMEPAD_X), true);
+    input_collect(&in);
+    CHECK(in.nkeys == 1 && in.keys[0].key == CORE_KEY_F1 && in.keys[0].down, "X presses F1");
+    CHECK(in.joy[1] == 0, "X isn't a joystick button");
+    input_set_gamepad(BIT(GAMEPAD_X), true);
+    input_collect(&in);
+    CHECK(in.nkeys == 0, "held: no repeat");
+    input_set_gamepad(0, true);
+    input_collect(&in);
+    CHECK(in.nkeys == 1 && in.keys[0].key == CORE_KEY_F1 && !in.keys[0].down, "released");
+    input_set_gamepad(BIT(GAMEPAD_X), true);
+    input_collect(&in);
+    input_set_gamepad(BIT(GAMEPAD_X), false);      // the menu opens with X held
+    input_collect(&in);
+    CHECK(in.nkeys == 1 && !in.keys[0].down, "released when the menu opens");
+    input_set_gamepad(BIT(GAMEPAD_X), true);       // still held after resuming: ignored
+    input_collect(&in);
+    CHECK(in.nkeys == 0, "a button held from the menu doesn't press its key");
+}
+
 int main(void) {
     test_axis_buttons();
 #if defined(__linux__) || defined(__FreeBSD__)
     test_evdev();
 #endif
     test_input_path();
+    test_c64_keys();
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

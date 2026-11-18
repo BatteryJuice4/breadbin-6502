@@ -3,6 +3,7 @@
 #include "video/palettes.h"
 #include "input/keynames.h"
 #include "platform/gamepad.h"
+#include "core/core.h"
 #include "platform/paths.h"
 #include "video/view.h"
 
@@ -57,6 +58,9 @@ static void test_roundtrip(void) {
     a.input.menu_key = input_key_from_name("F12");
     a.input.quick_save_key = input_key_from_name("F5");
     a.input.quick_load_key = 0;     // unbound
+    a.input.pad_c64_key[GAMEPAD_X] = CORE_KEY_F1;
+    a.input.pad_c64_key[GAMEPAD_BACK] = CORE_KEY_F1;     // two buttons, one key: one list
+    a.input.pad_c64_key[GAMEPAD_Y] = 'Y';
 
     char text[4096];
     size_t need = settings_serialize(&a, NULL, 0);
@@ -79,6 +83,20 @@ static void test_roundtrip(void) {
     // Truncated buffer: snprintf-style, NUL-terminated, same reported size
     char small[16];
     CHECK(settings_serialize(&a, small, sizeof(small)) == need && small[15] == 0, "truncated serialize");
+}
+
+static void test_c64_keys(void) {
+    settings_t s;
+    settings_default(&s);
+    s.input.pad_c64_key[GAMEPAD_X] = CORE_KEY_F1;      // e.g. from the game pack
+    CHECK(parse(&s, "[input]\nmenu = \"F12\"\n"), "parse: %s", err);
+    CHECK(s.input.pad_c64_key[GAMEPAD_X] == CORE_KEY_F1, "files without the table keep the pack's bindings");
+    CHECK(parse(&s, "[input.c64_keys]\nRunStop = \"Gamepad_Back\"\nF7 = \"Space\"\nF9 = \"Gamepad_A\"\nF5 = \"Gamepad_Start\"\n"),
+          "parse: %s", err);
+    CHECK(s.input.pad_c64_key[GAMEPAD_X] == 0 && s.input.pad_c64_key[GAMEPAD_BACK] == CORE_KEY_STOP, "the table replaces them");
+    CHECK(strstr(warns, "only gamepad buttons") && strstr(warns, "unknown C64 key \"F9\"") && strstr(warns, "always open the menu"),
+          "warnings: %s", warns);
+    CHECK(s.input.pad_c64_key[GAMEPAD_START] == 0 && s.input.pad_c64_key[GAMEPAD_A] == 0, "refused bindings kept out");
 }
 
 static void test_quick_keys(void) {
@@ -210,6 +228,7 @@ int main(void) {
     test_view_rect();
     test_keynames();
     test_roundtrip();
+    test_c64_keys();
     test_quick_keys();
     test_partial_and_invalid();
     test_files();

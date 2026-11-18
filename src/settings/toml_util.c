@@ -1,5 +1,6 @@
 #include "settings/toml_util.h"
 #include "input/keynames.h"
+#include "platform/gamepad.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -97,5 +98,34 @@ bool tu_get_keys(toml_datum_t tab, const char* key, int* out, int max, tu_warn_t
         else tu_warn(w, "[%s] %s: only %d keys per action, \"%s\" ignored", sect, key, max, names[i]);
     }
     for (int i = 0; i < max; i++) out[i] = i < 8 ? codes[i] : 0;
+    return true;
+}
+
+bool tu_get_c64_keys(toml_datum_t input_table, uint8_t pad_c64_key[32], tu_warn_t* w, const char* sect) {
+    toml_datum_t t = toml_get(input_table, "c64_keys");
+    if (t.type == TOML_UNKNOWN) return false;
+    if (t.type != TOML_TABLE) {
+        tu_warn(w, "[%s] c64_keys: expected a table of C64 key = gamepad button(s)", sect);
+        return false;
+    }
+    memset(pad_c64_key, 0, 32);
+    for (int i = 0; i < t.u.tab.size; i++) {
+        const char* name = t.u.tab.key[i];
+        const int c64 = input_c64_key_from_name(name);
+        if (!c64) {
+            tu_warn(w, "[%s.c64_keys] unknown C64 key \"%s\" ignored", sect, name);
+            continue;
+        }
+        int codes[4] = { 0 };
+        if (!tu_get_keys(t, name, codes, 4, w, sect)) continue;
+        for (int c = 0; c < 4 && codes[c]; c++) {
+            const int button = codes[c] - INPUT_GAMEPAD_BASE;
+            if (INPUT_IS_GAMEPAD(codes[c]) && (button == GAMEPAD_START || button == GAMEPAD_GUIDE)) {
+                tu_warn(w, "[%s.c64_keys] %s: Start and Guide always open the menu", sect, name);
+            } else if (INPUT_IS_GAMEPAD(codes[c])) {
+                pad_c64_key[button] = (uint8_t)c64;
+            } else tu_warn(w, "[%s.c64_keys] %s: only gamepad buttons (the keyboard types C64 keys itself)", sect, name);
+        }
+    }
     return true;
 }

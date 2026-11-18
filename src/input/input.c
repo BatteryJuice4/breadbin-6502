@@ -153,6 +153,14 @@ static uint8_t pad_bits(uint32_t buttons) {
 
 void input_set_gamepad(uint32_t buttons, bool playing) {
     if (!playing) {
+        // Keys a button still holds are released (the menu opened or the game paused).
+        for (int b = 0; b < 32; b++) {
+            const int k = is.cfg.pad_c64_key[b];
+            if (k && (is.pad_prev & (1u << b)) && is.c64_down[k]) {
+                is.c64_down[k] = false;
+                enqueue(false, k);
+            }
+        }
         is.pad_ignore = buttons;
         is.pad_prev = buttons;
         is.pad_held = 0;
@@ -161,6 +169,17 @@ void input_set_gamepad(uint32_t buttons, bool playing) {
     is.pad_ignore &= buttons;   // released buttons count again
     buttons &= ~is.pad_ignore;
     is.tapped |= pad_bits(buttons & ~is.pad_prev);
+    // Buttons bound to C64 keys ([input.c64_keys]) press and release them like the
+    // keyboard does, through the same queue (so replays record them).
+    const uint32_t changed = buttons ^ is.pad_prev;
+    for (int b = 0; b < 32; b++) {
+        const int k = is.cfg.pad_c64_key[b];
+        if (!k || !(changed & (1u << b))) continue;
+        const bool down = (buttons >> b) & 1;
+        if (down == is.c64_down[k]) continue;
+        is.c64_down[k] = down;
+        enqueue(down, k);
+    }
     is.pad_prev = buttons;
     is.pad_held = buttons;
 }

@@ -15,7 +15,8 @@
       Left Ctrl         -> CTRL              Left Alt -> C=
       cursor keys       -> C64 cursor keys
     The menu key and F11 are handled by the app before input sees them.
-    Gamepad buttons (INPUT_GAMEPAD_BASE codes) only drive joystick actions; all
+    Gamepad buttons (INPUT_GAMEPAD_BASE codes) drive joystick actions, and press C64
+    keys where [input.c64_keys] binds them (e.g. F1 to start a game); all
     connected pads act on the same joystick.
 */
 #include "core/core.h"
