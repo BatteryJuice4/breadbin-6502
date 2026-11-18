@@ -210,15 +210,22 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
 
     toml_datum_t ld = toml_get(top, "load");
     if (ld.type == TOML_TABLE) {
-        static const char* const load_keys[] = { "file", "done_pc", "done_frames", NULL };
+        static const char* const load_keys[] = { "file", "done_pc", "done_frames", "drive", NULL };
         check_keys(ld, load_keys, &w, "load");
         char file[64];
         if (tu_get_string(ld, "file", file, sizeof(file), &w, "load")) {
-            if (strlen(file) <= 16) snprintf(p.load_file, sizeof(p.load_file), "%s", file);
+            if (strlen(file) <= 16) snprintf(p.load_file, sizeof(p.load_file), "%.16s", file);
             else tu_warn(&w, "[load] file: C64 file names have at most 16 characters");
         }
         tu_get_int(ld, "done_pc", 0, 0xFFFF, &p.load_done_pc, &w, "load");
         tu_get_int(ld, "done_frames", 1, 20 * 60 * 60, &p.load_done_frames, &w, "load");
+        char drive[16];
+        if (tu_get_string(ld, "drive", drive, sizeof(drive), &w, "load")) {
+            if (!strcmp(drive, "auto")) p.drive = GAMEPACK_DRIVE_AUTO;
+            else if (!strcmp(drive, "1541")) p.drive = GAMEPACK_DRIVE_1541;
+            else if (!strcmp(drive, "none")) p.drive = GAMEPACK_DRIVE_NONE;
+            else tu_warn(&w, "[load] drive: expected \"auto\", \"1541\" or \"none\"");
+        }
     } else if (ld.type != TOML_UNKNOWN) {
         tu_warn(&w, "[game] load: expected a table");
     }

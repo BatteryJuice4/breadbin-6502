@@ -44,6 +44,7 @@ typedef struct {
     char media[16];             // "cartridge", "d64", "prg", "t64", "tap"
     bool ntsc;
     char sysrom_sha1[3][41];    // kernal, basic, chargen
+    char drive_sha1[41];        // 1541 ROM, "" = no drive emulated
     int mod_count;
     char mods[REPLAY_MAX_MODS][112];    // "id@sha1"
 } replay_header_t;

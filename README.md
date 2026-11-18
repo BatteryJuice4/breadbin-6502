@@ -133,9 +133,15 @@ Supported cartridge types so far: `.crt` hardware type 0 (normal cartridge) as 8
 types (Ocean, Magic Desk, EasyFlash, ...) are added when a game needs them, and are
 reported as unsupported until then.
 
-Disks are served through the C64's own LOAD routine (instantly, no 1541 drive ROM
-needed), which covers BASIC loads and games that load more parts with the KERNAL. Games
-with their own fast loaders talk to the drive directly and don't work yet. Tapes play
+Disks (`.d64`, `.g64`) go into an emulated 1541 drive if you install a 1541 ROM (your own
+dump: `1541.rom`, or `1541-c000.rom` + `1541-e000.rom`, in the system ROM folder). The
+drive runs its real DOS, so fast loaders, copy protection and saving to disk work; a game
+that writes to its disk gets a save copy in your settings folder, and your own file is
+never changed. Loading then takes as long as on a real 1541, sped up as much as your
+computer allows. Without a 1541 ROM, disks and `.prg` files are served instantly through
+the C64's own LOAD routine, which covers BASIC loads and games that load more parts with
+the KERNAL, but not games with their own fast loaders (`--no-drive` chooses this even with
+the ROM installed). Tapes play
 through an emulated datasette, so tape turbo loaders work; how fast a long tape loads
 depends on your computer. See [docs/gamepack.md](docs/gamepack.md#loading-disk-and-tape).
 

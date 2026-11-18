@@ -11,7 +11,10 @@
     Loading is over when, after RUN has been typed:
       - the game pack's done_pc was executed, if it sets one, or
       - the game pack's done_frames have passed, if it sets that, or
-      - otherwise, no file was loaded and the tape motor was off for a moment.
+      - otherwise, no file was loaded and the tape (or real 1541) motor was off for
+        a moment.
+    With the real 1541 (core_has_drive), LOAD is typed once the drive has had time
+    to start, and RUN once the load is over (as for tapes).
     A time limit ends warp anyway, so a game that never "finishes" still shows up.
 */
 #include <stdbool.h>
@@ -36,8 +39,9 @@ typedef struct {
     uint32_t idle;              // frames without load activity
     uint32_t last_loads;
     uint32_t limit;             // warp time limit in frames
-    bool motor_seen;            // .tap: the tape motor has run
-    uint32_t prompt_hits;       // .tap: CHRIN hits while the motor last ran
+    bool drive;                 // disk in the real 1541 (not the LOAD trap)
+    bool motor_seen;            // .tap/1541: the motor has run
+    uint32_t prompt_hits;       // .tap/1541: CHRIN hits while the motor last ran
     bool loading;
 } autostart_t;
 

@@ -78,6 +78,7 @@ static char* header_toml(const savestate_header_t* h) {
         sb_quoted(&b, h->sysrom_sha1[i]);
     }
     sb_str(&b, "]\n");
+    sb_kv(&b, "drive_rom", h->drive_sha1);
     sb_kv(&b, "patches", h->patches);
     sb_kv(&b, "saved_at", h->saved_at);
     sb_kv(&b, "frame", frame);      // a string: TOML integers are signed 64-bit
@@ -117,6 +118,7 @@ static bool parse_header(const char* text, size_t len, savestate_header_t* h, ch
             if (a.u.arr.elem[i].type == TOML_STRING) snprintf(h->sysrom_sha1[i], 41, "%s", a.u.arr.elem[i].u.s);
         }
     }
+    get_s(t, "drive_rom", h->drive_sha1, sizeof(h->drive_sha1));
     get_s(t, "patches", h->patches, sizeof(h->patches));
     get_s(t, "saved_at", h->saved_at, sizeof(h->saved_at));
     char frame[32] = "";
@@ -246,6 +248,10 @@ bool savestate_compatible(const savestate_header_t* s, const savestate_header_t*
                  now->ntsc ? "NTSC" : "PAL");
     } else if (memcmp(s->sysrom_sha1, now->sysrom_sha1, sizeof(s->sysrom_sha1)) != 0) {
         snprintf(why, why_size, "It was saved with different system ROMs.");
+    } else if (strcmp(s->drive_sha1, now->drive_sha1) != 0) {
+        snprintf(why, why_size, "%s", !s->drive_sha1[0] ? "It was saved without the 1541 drive (no 1541 ROM was installed)."
+                 : !now->drive_sha1[0] ? "It was saved with the 1541 drive, but no 1541 ROM is installed now."
+                 : "It was saved with a different 1541 ROM.");
     } else if (strcmp(s->patches, now->patches) != 0) {
         snprintf(why, why_size, "It was saved with %s patch mods than the game has now. Match them in the "
                  "Mods tab and restart the game.", s->patches[0] && now->patches[0] ? "different" : s->patches[0] ? "more" : "fewer");

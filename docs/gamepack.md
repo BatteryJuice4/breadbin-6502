@@ -40,7 +40,7 @@ id replaces the bundled one.
 ```toml
 id      = "mygame"         # required: a-z 0-9 - _ (1-63 chars), used for the settings folder
 title   = "My Game"        # required: window title and menus
-media   = "cartridge"      # "cartridge" (default) | "disk" (.d64 .prg) | "tape" (.tap .t64)
+media   = "cartridge"      # "cartridge" (default) | "disk" (.d64 .g64 .prg) | "tape" (.tap .t64)
 video_standard = "PAL"     # "PAL" (default) | "NTSC" (6567R8 timing, 59.83 fps); --pal/--ntsc override it
 sid_model = "6581"         # "6581" (default) | "8580" (only the 6581 is emulated so far)
 joystick_port = 2          # default joystick port (1 or 2)
@@ -56,6 +56,7 @@ known_sha1   = []          # SHA-1 of the game data (see below); for disk/tape g
 file        = ""           # file to LOAD; "" = the first one on the disk/tape
 done_pc     = 0x0810       # loading is over when the CPU runs this address
 done_frames = 300          # ... or this many frames after the reset (when done_pc isn't set)
+drive       = "auto"       # "auto" (default) | "1541" | "none": which drive disks go to (launcher 0.6.0+)
 
 [input.default]            # default keys; players can rebind them in the menu
 up    = "Up"
@@ -116,6 +117,7 @@ matches no matter which header or padding a tool wrote:
 |---|---|
 | `.crt` / `.bin` cartridge | the ROM **chip data only**: the CHIP packet payloads of a `.crt`, or the whole raw `.bin` (so a dump matches wrapped or not) |
 | `.d64` disk | the sector data (683 or 768 sectors), without the optional error bytes |
+| `.g64` disk | every recorded half-track in order, each as its 16-bit little-endian length followed by its bytes (header, offset tables and padding left out) |
 | `.prg` program | the whole file |
 | `.t64` tape archive | each file as loaded (2-byte load address + data), in directory order |
 | `.tap` raw tape | the pulse data after the 20-byte header |
@@ -133,19 +135,33 @@ There are no loading screens: the launcher resets the C64, types `LOAD"<file>",8
 (disk) or `LOAD"<file>",1,1` (tape) and then `RUN`, and runs at full speed with no
 picture or sound until loading is over.
 
-- **Disks** (`.d64`, `.prg`) and **`.t64`** archives are served instantly: when the
-  game calls the KERNAL's LOAD routine, the launcher hands over the file directly. Games
-  that load with their own fast loader (talking to the 1541 drive directly) don't work
-  yet; that needs full drive emulation.
+- **Disks** (`.d64`, `.g64`) go into an emulated **1541 drive** when the player has
+  installed a 1541 ROM (their own dump, never bundled: `1541.rom`, or `1541-c000.rom` +
+  `1541-e000.rom`, in the system ROM folder). The drive runs its real DOS and reads the
+  disk bit by bit, so fast loaders, drive code and copy protection work, and games can
+  save to the disk. Loading takes as long as on a real 1541 (sped up as much as the
+  computer allows).
+- Without a 1541 ROM, **disks**, **`.prg`** programs and **`.t64`** archives are served
+  instantly: when the game calls the KERNAL's LOAD routine, the launcher hands over the
+  file directly (a `.g64` through the sectors decoded from it). Games with their own fast
+  loader don't work this way. `.prg` and `.t64` always load this way.
+- `drive` in `[load]` chooses: `"auto"` uses the 1541 when its ROM is installed, `"1541"`
+  means the game needs the real drive (the launcher asks the player for the ROM instead of
+  starting), `"none"` always uses the instant LOAD.
+- When a game **writes to its disk** in the 1541 (high scores, saved games), the written
+  disk is kept as a save copy in the player's settings folder
+  (`disks/<game id>/<disk SHA-1>.g64`) and used instead of the original next time. The
+  player's own file is never changed; deleting the save copy goes back to the original.
+  Replays always start from the original disk.
 - **`.tap`** tapes play through the emulated datasette in real time, sped up as much as
   the computer allows, so turbo loaders work. Long tapes still take a while.
 
-By default loading counts as over when no file was loaded (and the tape motor was off)
-for a moment after `RUN`. Many games then unpack themselves for a few seconds (the
+By default loading counts as over when no file was loaded (and the tape or drive motor was
+off) for a moment after `RUN`. Many games then unpack themselves for a few seconds (the
 striped border); set `done_pc` (an address the game's own code reaches, such as its
 main loop or title screen) or `done_frames` to keep the picture hidden until the game is
-really ready. There's a time limit (2 minutes of C64 time for disks, 20 for tapes), so a
-wrong value never hides a game forever.
+really ready. There's a time limit (2 minutes of C64 time for disks, 10 in the 1541, 20
+for tapes), so a wrong value never hides a game forever.
 
 Players can insert another disk or tape from the menu ("Swap disk..."), without
 restarting the game.

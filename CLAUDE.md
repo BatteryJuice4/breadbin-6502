@@ -18,7 +18,17 @@ Repo-specific rules:
   allocate it through `core_alloc()` in `core_chips.c`, never plain `malloc`. CI's
   `ubuntu-latest` (26.04) compiles for x86-64-v3 (AVX2), where misalignment faults.
 - Disk/tape media live in `src/media/` (pure C on top of `core.h`); `tests/test_media.c`
-  builds its own test disks and tapes, so no third-party images are needed.
+  builds its own test disks and tapes (shared builders in `tests/test_images.h`), so no
+  third-party images are needed.
+- 1541 drive: `src/core/patched/c1541.h` (the drive, rewritten from chips' stub) +
+  the serial bus in the patched `c64.h`; disks reach the core as `core_disk_t` GCR tracks
+  built by `src/media/gcr.c`. Only with the user's 1541 ROM (`sysroms`); `main.c`'s
+  `use_drive()` decides (ROM present, pack `[load] drive`, `--no-drive`), then the trap
+  leaves disks alone (`media_image_t.use_drive`). Writes mark `core_disk_t.dirty`; the app
+  keeps a save copy via `src/state/disksave.c` (never the user's file; not during
+  replays). `tests/test_drive.c` needs `BB_TEST_ROM_DIR` with a 1541 ROM, else it's
+  skipped (CI). The drive is part of determinism, save states (never its ROM) and replay
+  fingerprints (its RAM).
 - Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS
   patches, `modset` = validation, load order, cheats, install). Format: `docs/mods.md`.
   Packages are untrusted input: keep the size caps and the data-files-only rule.

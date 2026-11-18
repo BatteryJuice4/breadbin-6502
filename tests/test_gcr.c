@@ -2,6 +2,7 @@
 // generated here.
 #include "media/d64.h"
 #include "media/gcr.h"
+#include "state/disksave.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -210,11 +211,48 @@ static void test_g64(void) {
     free(img);
 }
 
+// Save copies (state/disksave.h): written as .g64, read back identical.
+static void test_disksave(void) {
+    size_t size;
+    uint8_t* img = make_d64(&size, NULL);
+    d64_t d;
+    char err[1200];
+    d64_open(img, size, &d, err, sizeof(err));
+    gcr_image_t g;
+    gcr_from_d64(&d, &g, err, sizeof(err));
+    g.disk.track[2][100] ^= 0xFF;       // as if the drive had written something
+
+    char path[256];
+    const char* sha = "0123456789abcdef0123456789abcdef01234567";
+    CHECK(!disksave_path(".", "short", path, sizeof(path)), "bad sha1 accepted");
+    CHECK(!disksave_path("", sha, path, sizeof(path)), "empty dir accepted");
+    CHECK(disksave_path("test_gcr_saves", sha, path, sizeof(path)) && strstr(path, sha) && strstr(path, ".g64"), "path");
+    remove(path);
+    gcr_image_t back;
+    CHECK(!disksave_read(path, &back, err, sizeof(err)) && err[0] == 0, "missing save copy: %s", err);
+    CHECK(disksave_write(path, &g.disk, err, sizeof(err)), "write: %s", err);
+    CHECK(disksave_read(path, &back, err, sizeof(err)), "read: %s", err);
+    int same = 1;
+    for (int i = 0; i < CORE_DISK_HALFTRACKS; i++) {
+        if (g.disk.size[i] != back.disk.size[i] || (g.disk.track[i] && memcmp(g.disk.track[i], back.disk.track[i], g.disk.size[i]))) same = 0;
+    }
+    CHECK(same, "save copy round trip");
+    FILE* f = fopen(path, "wb");    // a damaged save copy is refused with a reason
+    if (f) { fputs("GCR-1541", f); fclose(f); }
+    gcr_image_t bad;
+    CHECK(!disksave_read(path, &bad, err, sizeof(err)) && err[0], "damaged save copy accepted");
+    remove(path);
+    gcr_free(&back);
+    gcr_free(&g);
+    free(img);
+}
+
 int main(void) {
     test_code();
     test_d64();
     test_d64_errors();
     test_g64();
+    test_disksave();
     if (failures == 0) printf("test_gcr: all passed\n");
     return failures ? 1 : 0;
 }

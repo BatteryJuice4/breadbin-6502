@@ -33,6 +33,13 @@ typedef enum {
     GAMEPACK_CART_ULTIMAX,
 } gamepack_cart_t;
 
+// [load] drive: which drive disks go to.
+enum {
+    GAMEPACK_DRIVE_AUTO = 0,    // the emulated 1541 if the user installed a 1541 ROM, else the LOAD trap
+    GAMEPACK_DRIVE_1541,        // the game needs the real drive (fastloader, protection): ask for the ROM
+    GAMEPACK_DRIVE_NONE,        // always the LOAD trap
+};
+
 typedef struct {
     char id[GAMEPACK_ID_MAX];       // [a-z0-9_-], used for the settings folder
     char title[128];
@@ -50,6 +57,7 @@ typedef struct {
     char load_file[17];             // file to LOAD; "" = the first one
     int load_done_pc;               // loading is over when this PC runs; -1 = not set
     int load_done_frames;           // ... or after this many frames; 0 = not set
+    int drive;                      // [load] drive: GAMEPACK_DRIVE_*
     // [video] (display only)
     char palette[72];               // palette id; also the default for settings
     int extended_view_max_width;    // 0 = unsupported

@@ -48,7 +48,8 @@ static uint8_t* make_d64(const dfile_t* files, int n, size_t size) {
     uint8_t* d = calloc(1, size);
     uint8_t* bam = d + soff(18, 0);
     bam[0] = 18; bam[1] = 1; bam[2] = 0x41;
-    for (int t = 1; t <= 35; t++) bam[4 * t] = (uint8_t)(t == 18 ? 0 : spt(t));
+    uint8_t used[36][21] = { { 0 } };
+    used[18][0] = used[18][1] = 1;      // BAM and directory
     memset(bam + 0x90, 0xA0, 27);
     memcpy(bam + 0x90, "TEST DISK", 9);
     memcpy(bam + 0xA2, "BB 2A", 5);
@@ -65,6 +66,7 @@ static uint8_t* make_d64(const dfile_t* files, int n, size_t size) {
         int blocks = 0;
         while (1) {
             uint8_t* b = d + soff(t, s);
+            used[t][s] = 1;
             const size_t chunk = files[i].size - pos > 254 ? 254 : files[i].size - pos;
             memcpy(b + 2, files[i].data + pos, chunk);
             pos += chunk;
@@ -74,6 +76,19 @@ static uint8_t* make_d64(const dfile_t* files, int n, size_t size) {
             b[0] = (uint8_t)t; b[1] = (uint8_t)s;
         }
         e[30] = (uint8_t)blocks;
+    }
+    // BAM: per track the free count and a bitmap (1 = free), consistent with what
+    // the files use, so the real DOS can allocate new blocks.
+    for (int tr = 1; tr <= 35; tr++) {
+        uint8_t* entry = bam + 4 * tr;
+        int free_count = 0;
+        for (int sec = 0; sec < spt(tr); sec++) {
+            if (!used[tr][sec]) {
+                entry[1 + sec / 8] |= (uint8_t)(1 << (sec % 8));
+                free_count++;
+            }
+        }
+        entry[0] = (uint8_t)free_count;
     }
     return d;
 }

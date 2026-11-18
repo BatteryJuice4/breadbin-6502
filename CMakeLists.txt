@@ -131,6 +131,7 @@ add_library(bb_core STATIC
     src/mods/modset.c
     src/replay/replay.c
     src/state/savestate.c
+    src/state/disksave.c
     src/mods/script.c
     src/mods/plugin.c
     ${BB_GEN_DIR}/openroms_kernal.c
@@ -304,7 +305,7 @@ if(BB_BUILD_TESTS)
     add_executable(test_gcr tests/test_gcr.c)
     target_link_libraries(test_gcr PRIVATE bb_core)
     target_compile_options(test_gcr PRIVATE ${BB_WARNINGS})
-    add_test(NAME gcr COMMAND test_gcr)
+    add_test(NAME gcr COMMAND test_gcr WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
     # Needs a 1541 ROM (never committed): set BB_TEST_ROM_DIR, else it is skipped.
     add_executable(test_drive tests/test_drive.c)

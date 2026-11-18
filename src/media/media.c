@@ -24,6 +24,7 @@ media_format_t media_detect(const char* path, const uint8_t* data, size_t size) 
     if (!data || size == 0) return MEDIA_FMT_UNKNOWN;
     if (cart_is_crt(data, size)) return MEDIA_FMT_CRT;
     if (tap_is_tap(data, size)) return MEDIA_FMT_TAP;
+    if (gcr_g64_signature(data, size)) return MEDIA_FMT_G64;
     if (t64_is_t64(data, size) && !has_ext(path, ".prg")) return MEDIA_FMT_T64;
     if (d64_size_ok(size) && !has_ext(path, ".prg") && !has_ext(path, ".bin")) return MEDIA_FMT_D64;
     if (has_ext(path, ".prg") && size > 2 && size <= CORE_FILE_MAX) return MEDIA_FMT_PRG;
@@ -33,7 +34,7 @@ media_format_t media_detect(const char* path, const uint8_t* data, size_t size) 
 
 media_kind_t media_format_kind(media_format_t fmt) {
     switch (fmt) {
-        case MEDIA_FMT_D64: case MEDIA_FMT_PRG: return MEDIA_KIND_DISK;
+        case MEDIA_FMT_D64: case MEDIA_FMT_G64: case MEDIA_FMT_PRG: return MEDIA_KIND_DISK;
         case MEDIA_FMT_T64: case MEDIA_FMT_TAP: return MEDIA_KIND_TAPE;
         default: return MEDIA_KIND_CARTRIDGE;
     }
@@ -44,6 +45,7 @@ const char* media_format_name(media_format_t fmt) {
         case MEDIA_FMT_CRT: return ".crt";
         case MEDIA_FMT_BIN: return ".bin";
         case MEDIA_FMT_D64: return ".d64";
+        case MEDIA_FMT_G64: return ".g64";
         case MEDIA_FMT_PRG: return ".prg";
         case MEDIA_FMT_T64: return ".t64";
         case MEDIA_FMT_TAP: return ".tap";
@@ -65,6 +67,29 @@ static void hash_t64(const t64_t* t, char out[41]) {
     for (int i = 0; i < 20; i++) snprintf(out + i * 2, 3, "%02x", d[i]);
 }
 
+// A .d64 view of a .g64 (for the LOAD trap and the directory): every sector the
+// DOS could read; unreadable ones are left zero. 40 tracks if any are recorded
+// past track 35.
+static bool g64_sectors(media_image_t* img, char* err, size_t err_size) {
+    const core_disk_t* disk = &img->gcr.disk;
+    int tracks = 35;
+    for (int t = 36; t <= 40; t++) {
+        if (disk->track[(t - 1) * 2]) tracks = 40;
+    }
+    size_t sectors = 0;
+    for (int t = 1; t <= tracks; t++) sectors += (size_t)gcr_sectors_per_track(t);
+    img->g64_sectors = calloc(sectors, 256);
+    if (!img->g64_sectors) {
+        if (err) snprintf(err, err_size, "out of memory");
+        return false;
+    }
+    uint8_t* p = img->g64_sectors;
+    for (int t = 1; t <= tracks; t++) {
+        for (int s = 0; s < gcr_sectors_per_track(t); s++, p += 256) gcr_read_sector(disk, t, s, p);
+    }
+    return d64_open(img->g64_sectors, sectors * 256, &img->d64, err, err_size);
+}
+
 bool media_open(media_image_t* img, media_format_t fmt, uint8_t* data, size_t size, char* err, size_t err_size) {
     memset(img, 0, sizeof(*img));
     img->fmt = fmt;
@@ -74,7 +99,17 @@ bool media_open(media_image_t* img, media_format_t fmt, uint8_t* data, size_t si
     switch (fmt) {
         case MEDIA_FMT_D64:
             ok = d64_open(data, size, &img->d64, err, err_size);
-            if (ok) sha1_hex(data, d64_data_size(&img->d64), img->sha1);
+            if (ok) {
+                sha1_hex(data, d64_data_size(&img->d64), img->sha1);
+                ok = gcr_from_d64(&img->d64, &img->gcr, err, err_size);
+            }
+            break;
+        case MEDIA_FMT_G64:
+            ok = gcr_from_g64(data, size, &img->gcr, err, err_size);
+            if (ok) {
+                gcr_g64_sha1(data, size, img->sha1);
+                ok = g64_sectors(img, err, err_size);
+            }
             break;
         case MEDIA_FMT_PRG:
             ok = size > 2 && size <= CORE_FILE_MAX;
@@ -107,11 +142,31 @@ bool media_open(media_image_t* img, media_format_t fmt, uint8_t* data, size_t si
 void media_close(media_image_t* img) {
     free(img->data);
     free(img->tap_v1);
+    free(img->g64_sectors);
+    gcr_free(&img->gcr);
     memset(img, 0, sizeof(*img));
 }
 
 int media_device(const media_image_t* img) {
     return media_format_kind(img->fmt) == MEDIA_KIND_TAPE ? 1 : 8;
+}
+
+core_disk_t* media_disk(media_image_t* img) {
+    return img->gcr.buf ? &img->gcr.disk : NULL;
+}
+
+bool media_rebuild_surface(media_image_t* img, char* err, size_t err_size) {
+    if (img->fmt != MEDIA_FMT_D64) return true;
+    gcr_image_t g;
+    if (!gcr_from_d64(&img->d64, &g, err, err_size)) return false;
+    media_set_surface(img, &g);
+    return true;
+}
+
+void media_set_surface(media_image_t* img, gcr_image_t* gcr) {
+    gcr_free(&img->gcr);
+    img->gcr = *gcr;
+    memset(gcr, 0, sizeof(*gcr));
 }
 
 core_file_result_t media_serve(void* user_data, uint8_t device, const uint8_t* name, size_t name_len,
@@ -120,7 +175,9 @@ core_file_result_t media_serve(void* user_data, uint8_t device, const uint8_t* n
     if (!img || !img->data) return CORE_FILE_NOT_HANDLED;
     switch (img->fmt) {
         case MEDIA_FMT_D64:
-            if (device != 8) return CORE_FILE_NOT_HANDLED;
+        case MEDIA_FMT_G64:
+            // In the real drive, the disk is read by the drive itself.
+            if (device != 8 || img->use_drive) return CORE_FILE_NOT_HANDLED;
             return d64_load(&img->d64, name, name_len, buf, buf_size, len) ? CORE_FILE_OK : CORE_FILE_NOT_FOUND;
         case MEDIA_FMT_PRG:
             // A single program: every name loads it (except the directory).

@@ -99,6 +99,16 @@ bool platform_states_dir(const char* game_id, char* out, size_t out_size) {
     return n > 0 && (size_t)n < out_size;
 }
 
+bool platform_disks_dir(const char* game_id, char* out, size_t out_size) {
+    char base[1024];
+    if (!game_id || !game_id[0] || !platform_config_dir(base, sizeof(base))) {
+        return false;
+    }
+    const char s = platform_path_sep();
+    int n = snprintf(out, out_size, "%s%cdisks%c%s", base, s, s, game_id);
+    return n > 0 && (size_t)n < out_size;
+}
+
 bool platform_settings_path(const char* game_id, char* out, size_t out_size) {
     char base[1024];
     if (!game_id || !game_id[0] || !platform_config_dir(base, sizeof(base))) {

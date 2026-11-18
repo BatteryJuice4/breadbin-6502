@@ -28,6 +28,7 @@
 #include "platform/paths.h"
 #include "rom/rom_file.h"
 #include "rom/sysroms.h"
+#include "state/disksave.h"
 #include "settings/settings.h"
 #include "state/savestate.h"
 #include "ui/ui.h"
@@ -99,6 +100,10 @@ static struct {
     bool cli_verify;                        // --verify: play the replay without a window, then exit
     const char* cli_record;                 // --record FILE: record from the start, save there on exit
     bool cli_headless;                      // --headless: run --frames N frames without a window, then exit
+    bool cli_no_drive;                      // --no-drive: no 1541 even with its ROM installed
+    char disks_dir[SETTINGS_PATH_MAX];      // save copies of written disks ("" = no config dir)
+    char disk_save_path[SETTINGS_PATH_MAX]; // this disk's save copy ("" = none kept)
+    bool fresh_media;                       // the next game load is for a replay: use the original disk
     char states_dir[SETTINGS_PATH_MAX];     // save states ("" = no config dir)
     ui_screen_t prev_screen;                // to notice the menu opening
     double frame_period;
@@ -355,6 +360,7 @@ static void start_recording(void) {
     sha1_hex(app.roms.kernal, sizeof(app.roms.kernal), h.sysrom_sha1[0]);
     sha1_hex(app.roms.basic, sizeof(app.roms.basic), h.sysrom_sha1[1]);
     sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), h.sysrom_sha1[2]);
+    snprintf(h.drive_sha1, sizeof(h.drive_sha1), "%s", core_has_drive(app.core) ? app.roms.drive1541_sha1 : "");
     for (int i = 0; i < app.mods.order_count && h.mod_count < REPLAY_MAX_MODS; i++) {
         const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
         if (e->usable) snprintf(h.mods[h.mod_count++], sizeof(h.mods[0]), "%s@%s", e->mod.id, e->sha1);
@@ -407,6 +413,8 @@ static void use_replay_mods(void) {
     }
 }
 
+static bool use_drive(void);
+
 static void check_replay_environment(void) {
     const replay_header_t* h = &app.play.header;
     char s[3][41];
@@ -415,6 +423,11 @@ static void check_replay_environment(void) {
     sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), s[2]);
     if (strcmp(s[0], h->sysrom_sha1[0]) || strcmp(s[1], h->sysrom_sha1[1]) || strcmp(s[2], h->sysrom_sha1[2])) {
         fprintf(stderr, "breadbin-6502: warning: the replay was recorded with different system ROMs\n");
+    }
+    const char* drive = use_drive() ? app.roms.drive1541_sha1 : "";
+    if (strcmp(drive, h->drive_sha1) != 0) {
+        fprintf(stderr, "breadbin-6502: warning: the replay was recorded %s\n", !h->drive_sha1[0] ? "without the 1541 drive"
+                : !drive[0] ? "with the 1541 drive, but no 1541 ROM is installed" : "with a different 1541 ROM");
     }
     if (strcmp(h->launcher_version, BB_VERSION) != 0) {
         fprintf(stderr, "breadbin-6502: note: the replay was recorded with launcher %s (this is %s)\n", h->launcher_version, BB_VERSION);
@@ -516,8 +529,62 @@ static rom_status_t check_cart(const cart_t* c, char* why, size_t why_size) {
     return check_hash(c->sha1, why, why_size);
 }
 
+// The emulated 1541 is used when its ROM is installed, unless the game pack or
+// --no-drive says otherwise.
+static bool use_drive(void) {
+    if (!app.roms.has_1541 || app.cli_no_drive) return false;
+    return !(app.gp.present && app.gp.pack.drive == GAMEPACK_DRIVE_NONE);
+}
+
+// Save copies are kept for normal play only: a replay must start from the
+// original disk every time, so recording and playback leave them alone.
+static bool disk_saves_on(void) {
+    return app.disks_dir[0] && !app.recording && !app.playing && !app.fresh_media &&
+           !app.cli_record && !app.cli_replay && !app.cli_headless;
+}
+
+// Write the disk's save copy if the drive changed it.
+static void flush_disk(void) {
+    core_disk_t* disk = media_disk(&app.media);
+    if (!disk || !disk->dirty) return;
+    disk->dirty = false;
+    if (!app.disk_save_path[0] || !disk_saves_on()) return;
+    char err[1200];
+    if (disksave_write(app.disk_save_path, disk, err, sizeof(err))) {
+        fprintf(stderr, "breadbin-6502: the game wrote to its disk; saved a copy in %s\n", app.disk_save_path);
+    } else {
+        fprintf(stderr, "breadbin-6502: %s\n", err);
+        set_message(true, "The game wrote to its disk, but the copy couldn't be saved: %s", err);
+    }
+}
+
+// Put the opened disk (if any) into the drive, using its save copy if there is one.
+static void attach_disk(void) {
+    app.media.use_drive = core_has_drive(app.core);
+    app.disk_save_path[0] = 0;
+    core_disk_t* disk = media_disk(&app.media);
+    if (!disk || !app.media.use_drive) {
+        core_insert_disk(app.core, NULL);
+        return;
+    }
+    if (disk_saves_on() && disksave_path(app.disks_dir, app.media.sha1, app.disk_save_path, sizeof(app.disk_save_path))) {
+        gcr_image_t copy;
+        char err[1200];
+        if (disksave_read(app.disk_save_path, &copy, err, sizeof(err))) {
+            media_set_surface(&app.media, &copy);
+            fprintf(stderr, "breadbin-6502: using the saved copy of this disk: %s\n", app.disk_save_path);
+        } else if (err[0]) {
+            fprintf(stderr, "breadbin-6502: ignoring the disk's save copy: %s\n", err);
+        }
+    }
+    core_insert_disk(app.core, media_disk(&app.media));
+}
+
 // Take out any disk/tape (the machine keeps running until the caller resets it).
 static void eject_media(void) {
+    flush_disk();
+    core_insert_disk(app.core, NULL);
+    app.disk_save_path[0] = 0;
     core_set_file_loader(app.core, NULL, NULL);
     core_remove_tape(app.core);
     media_close(&app.media);
@@ -594,6 +661,7 @@ static void insert_media(media_image_t* img, const char* path, rom_status_t stat
     app.media = *img;                   // takes over the image's buffers
     memset(img, 0, sizeof(*img));
     core_set_file_loader(app.core, media_serve, &app.media);
+    attach_disk();
     ui_state_t* u = &app.ui;
     const media_kind_t kind = media_format_kind(app.media.fmt);
     static char mode[48];
@@ -634,7 +702,7 @@ static bool load_rom(const char* path, load_mode_t mode) {
     }
     if (fmt == MEDIA_FMT_UNKNOWN) {
         free(data);
-        set_message(true, "%s isn't a C64 cartridge (.crt .bin), disk (.d64 .prg) or tape (.tap .t64) image.", path);
+        set_message(true, "%s isn't a C64 cartridge (.crt .bin), disk (.d64 .g64 .prg) or tape (.tap .t64) image.", path);
         return false;
     }
     media_image_t img;
@@ -655,9 +723,18 @@ static bool load_rom(const char* path, load_mode_t mode) {
             return false;
         }
     }
-    if (img.fmt == MEDIA_FMT_D64) patch_game(img.sha1, img.data, d64_data_size(&img.d64), NULL);
-    else if (img.fmt == MEDIA_FMT_PRG) patch_game(img.sha1, img.data, img.size, NULL);
-    else patch_game(img.sha1, NULL, 0, "patch mods can't change tape images (.tap, .t64)");
+    if (img.fmt == MEDIA_FMT_D64) {
+        patch_game(img.sha1, img.data, d64_data_size(&img.d64), NULL);
+        if (app.patch_sig[0] && !media_rebuild_surface(&img, err, sizeof(err))) {
+            fprintf(stderr, "breadbin-6502: %s\n", err);
+        }
+    } else if (img.fmt == MEDIA_FMT_PRG) {
+        patch_game(img.sha1, img.data, img.size, NULL);
+    } else if (img.fmt == MEDIA_FMT_G64) {
+        patch_game(img.sha1, NULL, 0, "patch mods can't change .g64 disk images");
+    } else {
+        patch_game(img.sha1, NULL, 0, "patch mods can't change tape images (.tap, .t64)");
+    }
     insert_media(&img, path, status, mode == LOAD_INTERACTIVE || mode == LOAD_CONFIRMED);
     return true;
 }
@@ -685,9 +762,12 @@ static void swap_media(const char* path) {
         return;
     }
     interrupt_replay("the disk or tape was swapped");
+    flush_disk();
+    core_insert_disk(app.core, NULL);
     media_close(&app.media);
     app.media = img;
     core_set_file_loader(app.core, media_serve, &app.media);
+    attach_disk();
     if (fmt == MEDIA_FMT_TAP) {
         core_insert_tape(app.core, app.media.tap_v1, app.media.tap_v1_size);
         core_tape_play(app.core);
@@ -808,6 +888,7 @@ static void state_header_now(savestate_header_t* h) {
     sha1_hex(app.roms.kernal, sizeof(app.roms.kernal), h->sysrom_sha1[0]);
     sha1_hex(app.roms.basic, sizeof(app.roms.basic), h->sysrom_sha1[1]);
     sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), h->sysrom_sha1[2]);
+    snprintf(h->drive_sha1, sizeof(h->drive_sha1), "%s", core_has_drive(app.core) ? app.roms.drive1541_sha1 : "");
     snprintf(h->patches, sizeof(h->patches), "%s", app.patch_sig);
     h->frame = core_frame_count(app.core);
 }
@@ -981,7 +1062,9 @@ static void handle_ui_actions(void) {
     if (u->act_replay_record && u->cart_loaded && !app.recording && !app.playing) {
         char path[SETTINGS_PATH_MAX];
         snprintf(path, sizeof(path), "%s", u->rom_path);
+        app.fresh_media = true;     // a replay always starts from the original disk
         if (load_rom(path, LOAD_CLI)) start_recording();     // restart, then record from the first frame
+        app.fresh_media = false;
     }
     if (u->act_replay_stop) {
         if (app.recording) stop_recording(NULL);
@@ -1129,6 +1212,9 @@ static void step_frame(void) {
         app.ui.loading_seconds = (float)((double)app.boot.frames / core_frame_rate(app.core));
         if (!autostart_loading(&app.boot)) end_boot();
     }
+    // The DOS has finished writing once the motor stops: keep the save copy current.
+    const core_disk_t* disk = media_disk(&app.media);
+    if (disk && disk->dirty && !core_drive_motor(app.core)) flush_disk();
     if (app.recording || app.playing) {
         const uint64_t fp = core_fingerprint(app.core);
         if (app.recording) {
@@ -1292,6 +1378,8 @@ static void usage(void) {
         "  launcher's Select ROM (or drag a file onto the window) to remember one.\n"
         "  --sysroms DIR     load real C64 system ROMs (kernal.rom, basic.rom, chargen.rom) from DIR\n"
         "                    default: <config dir>/roms/system, falling back to the bundled Open ROMs\n"
+        "                    (also 1541.rom, or 1541-c000.rom + 1541-e000.rom: emulate a real 1541 drive)\n"
+        "  --no-drive        load disks through the instant LOAD trap even with a 1541 ROM installed\n"
         "  --settings FILE   use FILE instead of the per-user settings file\n"
         "  --gamepack DIR    use the game pack in DIR (game.toml, icon.png, banner.png)\n"
         "  --generic         ignore built-in and bundled game packs (generic mode)\n"
@@ -1323,6 +1411,7 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--verify"))        { app.cli_verify = true; }
         else if (!strcmp(a, "--record") && v)   { app.cli_record = v; i++; }
         else if (!strcmp(a, "--headless"))      { app.cli_headless = true; }
+        else if (!strcmp(a, "--no-drive"))      { app.cli_no_drive = true; }
         else if (a[0] != '-' && !app.cli_cart)  { app.cli_cart = a; }
         else { usage(); return false; }
     }
@@ -1348,9 +1437,14 @@ static void load_system_roms(void) {
     if (!sysroms_load(&app.roms, rom_dir, err, sizeof(err))) {
         fprintf(stderr, "breadbin-6502: %s\n", err);
     }
-    snprintf(app.ui.system_roms, sizeof(app.ui.system_roms), "%s%s",
+    snprintf(app.ui.system_roms, sizeof(app.ui.system_roms), "%s%s%s",
              sysroms_source_name(app.roms.kernal_basic_source),
-             app.roms.chargen_source != app.roms.kernal_basic_source ? " (custom CHARGEN)" : "");
+             app.roms.chargen_source != app.roms.kernal_basic_source ? " (custom CHARGEN)" : "",
+             !app.roms.has_1541 ? "" : app.roms.drive1541_name ? " + 1541 drive" : " + 1541 drive (unknown ROM)");
+    if (app.roms.has_1541) {
+        fprintf(stderr, "breadbin-6502: 1541 ROM %s (%s)\n", app.roms.drive1541_sha1,
+                app.roms.drive1541_name ? app.roms.drive1541_name : "not a known dump; using it anyway");
+    }
 }
 
 static void add_note(const char* text) {
@@ -1402,7 +1496,14 @@ static void check_playable(void) {
         if (!app.sysrom_dir) platform_system_rom_dir(dir, sizeof(dir));
         snprintf(app.ui.blocked, sizeof(app.ui.blocked),
                  "%s needs the original Commodore system ROMs. Put your own dumps named kernal.rom, "
-                 "basic.rom and chargen.rom in this folder, then start again:\n%s",
+                 "basic.rom and chargen.rom in this folder, then start again:\n%.600s",
+                 p->title, app.sysrom_dir ? app.sysrom_dir : dir);
+    } else if (p->drive == GAMEPACK_DRIVE_1541 && !app.roms.has_1541) {
+        char dir[1024] = "the --sysroms folder";
+        if (!app.sysrom_dir) platform_system_rom_dir(dir, sizeof(dir));
+        snprintf(app.ui.blocked, sizeof(app.ui.blocked),
+                 "%s needs a real 1541 disk drive, which needs its ROM. Put your own dump in this folder, "
+                 "named 1541.rom (16 KB) or 1541-c000.rom and 1541-e000.rom (8 KB each), then start again:\n%.600s",
                  p->title, app.sysrom_dir ? app.sysrom_dir : dir);
     }
 }
@@ -1428,6 +1529,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     load_settings();
     init_mods();
     if (!platform_states_dir(game_id(), app.states_dir, sizeof(app.states_dir))) app.states_dir[0] = 0;
+    if (!platform_disks_dir(game_id(), app.disks_dir, sizeof(app.disks_dir))) app.disks_dir[0] = 0;
     const bool replay_ready = app.cli_replay && prepare_playback();
     if (app.cli_verify && !replay_ready) exit(2);
     if (replay_ready) use_replay_mods();
@@ -1445,6 +1547,8 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         .rom_kernal = app.roms.kernal,   .rom_kernal_size = sizeof(app.roms.kernal),
         .rom_basic = app.roms.basic,     .rom_basic_size = sizeof(app.roms.basic),
         .rom_chargen = app.roms.chargen, .rom_chargen_size = sizeof(app.roms.chargen),
+        .rom_1541 = use_drive() ? app.roms.drive1541 : NULL,
+        .rom_1541_size = use_drive() ? sizeof(app.roms.drive1541) : 0,
         .audio_sample_rate = audio_sample_rate(),
         .audio_fn = core_audio,
     });

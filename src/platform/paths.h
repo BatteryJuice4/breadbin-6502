@@ -27,6 +27,8 @@ bool platform_mods_dir(const char* game_id, char* out, size_t out_size);
 bool platform_replays_dir(const char* game_id, char* out, size_t out_size);
 // <config dir>/states/<game id> (save states)
 bool platform_states_dir(const char* game_id, char* out, size_t out_size);
+// <config dir>/disks/<game id> (save copies of disks the game wrote to)
+bool platform_disks_dir(const char* game_id, char* out, size_t out_size);
 
 // Create all missing parent directories of `path`.
 bool platform_make_parent_dirs(const char* path);

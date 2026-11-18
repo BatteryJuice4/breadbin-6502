@@ -26,6 +26,7 @@ typedef struct {
     char media[16];
     bool ntsc;
     char sysrom_sha1[3][41];    // kernal, basic, chargen
+    char drive_sha1[41];        // 1541 ROM, "" = no drive emulated
     char patches[2048];         // modset_patch_signature(): patch mods applied to the game
     char saved_at[32];          // local time, for display only ("2026-11-17 19:40")
     uint64_t frame;             // core_frame_count() when saved

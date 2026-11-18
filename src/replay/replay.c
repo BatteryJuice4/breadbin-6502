@@ -109,7 +109,9 @@ static char* header_toml(const replay_header_t* h) {
         if (i) sb_str(&b, ", ");
         sb_quoted(&b, h->sysrom_sha1[i]);
     }
-    sb_str(&b, "]\nmods = [");
+    sb_str(&b, "]\n");
+    sb_kv(&b, "drive_rom", h->drive_sha1);
+    sb_str(&b, "mods = [");
     for (int i = 0; i < h->mod_count; i++) {
         if (i) sb_str(&b, ", ");
         sb_quoted(&b, h->mods[i]);
@@ -146,6 +148,7 @@ static bool parse_header(const char* text, size_t len, replay_header_t* h, char*
             if (a.u.arr.elem[i].type == TOML_STRING) snprintf(h->sysrom_sha1[i], 41, "%s", a.u.arr.elem[i].u.s);
         }
     }
+    get_s(t, "drive_rom", h->drive_sha1, sizeof(h->drive_sha1));
     a = toml_get(t, "mods");
     if (a.type == TOML_ARRAY) {
         for (int i = 0; i < a.u.arr.size && h->mod_count < REPLAY_MAX_MODS; i++) {

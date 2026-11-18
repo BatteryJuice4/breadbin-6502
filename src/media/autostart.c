@@ -13,8 +13,8 @@
 enum {
     AS_WAIT_PROMPT = 0,         // until BASIC asks for input
     AS_TYPE_LOAD,
-    AS_WAIT_TAPE,               // .tap: until the tape load is over and BASIC asks again
-    AS_TYPE_RUN,                // disk/.t64: typed right after LOAD (the load is instant)
+    AS_WAIT_DEVICE,             // .tap or the real 1541: until the load is over and BASIC asks again
+    AS_TYPE_RUN,                // trap loads: typed right after LOAD (the load is instant)
     AS_RUNNING,                 // until loading is over
     AS_DONE,
 };
@@ -25,6 +25,9 @@ enum {
 // Warp limits (emulated time), PAL frames.
 #define LIMIT_DISK_FRAMES (2u * 60u * 50u)
 #define LIMIT_TAPE_FRAMES (20u * 60u * 50u)
+#define LIMIT_DRIVE_FRAMES (10u * 60u * 50u)
+// The 1541 needs about a second after power-on before it answers on the bus.
+#define DRIVE_READY_FRAMES 100
 
 static void set_text(autostart_t* a, const char* s) {
     snprintf(a->text, sizeof(a->text), "%s", s);
@@ -55,7 +58,8 @@ void autostart_begin(autostart_t* a, core_t* core, media_format_t fmt, const aut
     a->done_watch = (opts && opts->done_pc >= 0) ? core_add_watch(core, (uint16_t)opts->done_pc) : -1;
     a->done_frames = opts ? opts->done_frames : 0;
     const bool tape = media_format_kind(fmt) == MEDIA_KIND_TAPE;
-    a->limit = tape ? LIMIT_TAPE_FRAMES : LIMIT_DISK_FRAMES;
+    a->drive = !tape && fmt != MEDIA_FMT_PRG && core_has_drive(core);
+    a->limit = tape ? LIMIT_TAPE_FRAMES : a->drive ? LIMIT_DRIVE_FRAMES : LIMIT_DISK_FRAMES;
     if (a->done_frames > a->limit) a->limit = a->done_frames;
 
     // PETSCII: unshifted letters are the ASCII capitals.
@@ -83,18 +87,29 @@ void autostart_frame(autostart_t* a, core_t* core) {
     a->frames++;
     switch (a->state) {
         case AS_WAIT_PROMPT:
-            if (core_watch_hits(core, a->ready_watch) > 0) a->state = AS_TYPE_LOAD;
+            if (core_watch_hits(core, a->ready_watch) > 0 && (!a->drive || a->frames >= DRIVE_READY_FRAMES)) {
+                a->state = AS_TYPE_LOAD;
+            }
             break;
         case AS_TYPE_LOAD:
             if (type_more(a, core)) {
                 set_text(a, "RUN\r");
-                // Real tape loads take a while, and the KERNAL may clear the keyboard
-                // buffer meanwhile (Open ROMs does), so RUN waits for the next prompt.
-                a->state = (a->fmt == MEDIA_FMT_TAP) ? AS_WAIT_TAPE : AS_TYPE_RUN;
+                // Real tape and drive loads take a while, and the KERNAL may clear the
+                // keyboard buffer meanwhile (Open ROMs does), so RUN waits for the next prompt.
+                a->state = (a->fmt == MEDIA_FMT_TAP || a->drive) ? AS_WAIT_DEVICE : AS_TYPE_RUN;
             }
             break;
-        case AS_WAIT_TAPE:
-            if (core_tape_motor_on(core)) {
+        case AS_WAIT_DEVICE:
+            if (a->drive) {
+                // The 1541 keeps spinning for a while after the load, so count the
+                // prompts from when its motor started: LOAD itself never reads input.
+                if (!a->motor_seen && core_drive_motor(core)) {
+                    a->motor_seen = true;
+                    a->prompt_hits = core_watch_hits(core, a->ready_watch);
+                } else if (a->motor_seen && core_watch_hits(core, a->ready_watch) > a->prompt_hits) {
+                    a->state = AS_TYPE_RUN;     // BASIC is back at its prompt
+                }
+            } else if (core_tape_motor_on(core)) {
                 a->motor_seen = true;
                 a->prompt_hits = core_watch_hits(core, a->ready_watch);
             } else if (a->motor_seen && core_watch_hits(core, a->ready_watch) > a->prompt_hits) {
@@ -110,9 +125,9 @@ void autostart_frame(autostart_t* a, core_t* core) {
         default:
             break;
     }
-    // Load activity: a file served by the LOAD trap, or the tape motor running.
+    // Load activity: a file served by the LOAD trap, or the tape or drive motor running.
     const uint32_t loads = core_files_loaded(core);
-    if (loads != a->last_loads || core_tape_motor_on(core)) {
+    if (loads != a->last_loads || core_tape_motor_on(core) || core_drive_motor(core)) {
         a->idle = 0;
         a->last_loads = loads;
     } else {
@@ -126,8 +141,10 @@ void autostart_frame(autostart_t* a, core_t* core) {
             over = a->frames >= a->done_frames;
         } else {
             const bool tape = media_format_kind(a->fmt) == MEDIA_KIND_TAPE;
-            // A disk game counts as loaded once a file was served; a tape once the motor rested.
-            over = a->idle >= (tape ? IDLE_TAPE_FRAMES : IDLE_DISK_FRAMES) && (tape || a->last_loads > 0);
+            // A trap-loaded game counts as loaded once a file was served; a tape or the real
+            // drive once its motor rested.
+            const bool motor = tape || a->drive;
+            over = a->idle >= (motor ? IDLE_TAPE_FRAMES : IDLE_DISK_FRAMES) && (motor ? a->motor_seen : a->last_loads > 0);
         }
         if (over) a->state = AS_DONE;
     }
