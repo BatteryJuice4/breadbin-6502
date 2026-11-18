@@ -131,7 +131,8 @@ play). Game repos build their pack into the executable. You can also try one wit
 Supported cartridge types so far: `.crt` hardware type 0 (normal cartridge) as 8K,
 16K or Ultimax. Raw `.bin` dumps of 4K/8K/16K are loaded at $8000. Bank-switching
 types (Ocean, Magic Desk, EasyFlash, ...) are added when a game needs them, and are
-reported as unsupported until then.
+reported as unsupported until then. Old `.crt` dumps whose header claims 16K but that
+only contain the 8K ROM at $8000 (a common header mistake) run as 8K.
 
 Disks (`.d64`, `.g64`) go into an emulated 1541 drive if you install a 1541 ROM (your own
 dump: `1541.rom`, or `1541-c000.rom` + `1541-e000.rom`, in the system ROM folder). The

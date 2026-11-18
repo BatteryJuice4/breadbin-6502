@@ -694,6 +694,9 @@ static void insert_cart(const cart_t* cart, const char* path, rom_status_t statu
     u->message[0] = 0;
     fprintf(stderr, "breadbin-6502: cartridge \"%s\" (%s, sha1 %s)\n",
             u->rom_name, cart_mode_name(cart->mode), cart->sha1);
+    if (cart->header_fixed) {
+        fprintf(stderr, "breadbin-6502: note: the .crt header says 16K, but there's only ROM at $8000: running it as 8K\n");
+    }
     set_title(u->rom_name);
     if (remember) remember_rom(path);
     app.cheats_first = true;

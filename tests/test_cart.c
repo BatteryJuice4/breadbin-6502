@@ -44,6 +44,18 @@ static void test_8k(void) {
     CHECK(strcmp(h, cart.sha1) == 0, "8K: hash isn't SHA-1 of chip data");
 }
 
+// Old dumps often assert GAME by mistake: a "16K" header with ROM only at $8000
+// runs as 8K, and says so.
+static void test_wrong_16k_header(void) {
+    crt_begin(&b, 0, 0, 0, "HEADER SAYS 16K");
+    crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
+    CHECK(parse(), "wrong header: %s", err);
+    CHECK(cart.mode == CART_MODE_8K && cart.exrom && !cart.game && cart.header_fixed, "wrong header: not run as 8K");
+    crt_begin(&b, 0, 0, 1, "TEST 8K");
+    crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
+    CHECK(parse() && !cart.header_fixed, "a correct 8K header was flagged");
+}
+
 static void test_4k_mirror(void) {
     crt_begin(&b, 0, 0, 1, "TEST 4K");
     crt_chip(&b, 0, 0, 0x8000, rom_b, 0x1000);
@@ -179,10 +191,6 @@ static void test_errors(void) {
     crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
     expect_fail("duplicate window", "more than one ROM chip");
 
-    crt_begin(&b, 0, 0, 0, "16K HALF");
-    crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
-    expect_fail("16K without ROMH", "no ROM at $A000");
-
     crt_begin(&b, 0, 0, 1, "8K AT A000");
     crt_chip(&b, 0, 0, 0xA000, rom_a, 0x2000);
     expect_fail("8K chip at $A000", "doesn't fit a 8K");
@@ -199,14 +207,17 @@ static void test_errors(void) {
     CHECK(!cart_from_bin(rom_a, 0x3000, 0x8000, &bin, err, sizeof(err)), "12K bin accepted");
     CHECK(!cart_from_bin(rom_a, 0x2000, 0xC000, &bin, err, sizeof(err)), "bin at $C000 accepted");
 
-    // Every truncation of a valid image must fail cleanly (no crash, no accept)
+    // Every truncation of a valid image must fail cleanly (no crash, no accept),
+    // except right after the $8000 chip: that's a complete "16K header, 8K ROM"
+    // image, which runs as 8K (see test_wrong_16k_header; its SHA-1 differs).
     crt_begin(&b, 0, 0, 0, "FUZZ");
     crt_chip(&b, 0, 0, 0x8000, rom_a, 0x2000);
+    const size_t first_chip_end = b.len;
     crt_chip(&b, 0, 0, 0xA000, rom_a, 0x2000);
     const size_t full = b.len;
     int accepted = 0;
     for (size_t n = 0; n < full; n++) {
-        if (cart_parse_crt(b.buf, n, &cart, err, sizeof(err))) accepted++;
+        if (cart_parse_crt(b.buf, n, &cart, err, sizeof(err)) && !(n == first_chip_end && cart.header_fixed)) accepted++;
     }
     CHECK(accepted == 0, "%d truncated images accepted", accepted);
     CHECK(cart_parse_crt(b.buf, full, &cart, err, sizeof(err)), "full fuzz image rejected: %s", err);
@@ -216,6 +227,7 @@ int main(void) {
     for (unsigned i = 0; i < sizeof(rom_a); i++) rom_a[i] = (uint8_t)(i * 7 + 3);
     for (unsigned i = 0; i < sizeof(rom_b); i++) rom_b[i] = (uint8_t)(i * 13 + 1);
     test_8k();
+    test_wrong_16k_header();
     test_4k_mirror();
     test_16k();
     test_ultimax();

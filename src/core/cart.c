@@ -220,7 +220,12 @@ bool cart_parse_crt(const uint8_t* data, size_t size, cart_t* out, char* err, si
         return fail(err, err_size, "cartridge has no ROM at $8000");
     }
     if (out->mode == CART_MODE_16K && !out->has_romh) {
-        return fail(err, err_size, "16K cartridge has no ROM at $A000 (truncated file?)");
+        // Many old dumps assert GAME by mistake: with ROM only at $8000 this is an
+        // 8K cartridge (16K mode would hide the RAM/BASIC at $A000 behind nothing).
+        // A truly truncated 16K dump also lands here; its SHA-1 won't match a game pack.
+        out->mode = CART_MODE_8K;
+        out->header_fixed = true;
+        set_mode_lines(out);
     }
     uint8_t digest[20];
     sha1_final(&sha, digest);

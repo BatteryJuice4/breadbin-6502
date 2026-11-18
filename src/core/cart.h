@@ -29,6 +29,7 @@ typedef enum {
 
 typedef struct {
     char name[33];          // from the .crt header (empty for .bin)
+    bool header_fixed;      // .crt header said 16K, but only $8000 had ROM: runs as 8K
     uint16_t hw_type;       // .crt hardware type (0 = normal cartridge)
     cart_mode_t mode;
     bool exrom, game;       // expansion port lines, true = asserted (low)
