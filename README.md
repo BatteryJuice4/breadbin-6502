@@ -137,8 +137,9 @@ Disks (`.d64`, `.g64`) go into an emulated 1541 drive if you install a 1541 ROM 
 dump: `1541.rom`, or `1541-c000.rom` + `1541-e000.rom`, in the system ROM folder). The
 drive runs its real DOS, so fast loaders, copy protection and saving to disk work; a game
 that writes to its disk gets a save copy in your settings folder, and your own file is
-never changed. Plain loads are still instant ("Fast loading" in the ROM tab, on by
-default); turn it off and every load takes as long as on a real 1541, sped up as much as
+never changed. A small red light in the corner shows when the drive is busy, like the
+LED on a real 1541 ("Drive light" in the ROM tab). Plain loads are still instant ("Fast
+loading" in the ROM tab, on by default); turn it off and every load takes as long as on a real 1541, sped up as much as
 your computer allows. Without a 1541 ROM, disks and `.prg` files are served instantly through
 the C64's own LOAD routine, which covers BASIC loads and games that load more parts with
 the KERNAL, but not games with their own fast loaders (`--no-drive` chooses this even with

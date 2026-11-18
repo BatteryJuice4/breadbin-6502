@@ -1079,8 +1079,9 @@ static void handle_ui_actions(void) {
     }
     if (u->act_disk_changed) {
         // Not in the middle of a replay recording: it recorded the old way of loading.
-        if (!app.recording && !app.playing) app.media.fast_load = app.media.use_drive && fast_load_on();
-        else set_message(false, "Fast loading changes when the game is loaded again.%s", "");
+        const bool want = app.media.use_drive && fast_load_on();
+        if (!app.recording && !app.playing) app.media.fast_load = want;
+        else if (want != app.media.fast_load) set_message(false, "Fast loading changes when the game is loaded again.%s", "");
         app.settings_dirty = true;
     }
     if (u->act_resume) {
@@ -1302,6 +1303,7 @@ static void frame_cb(void) {
     app.prev_screen = app.ui.screen;
     poll_gamepads();
     app.ui.script_text_count = scriptset_texts(app.scripts, &app.ui.script_texts);
+    app.ui.drive_led = app.ui.drive_present && core_drive_led(app.core);
     app.ui.overlay_valid = video_screen_area(&app.ui.overlay_x, &app.ui.overlay_y,
                                              &app.ui.overlay_px, &app.ui.overlay_py);
     ui_frame(&app.ui);

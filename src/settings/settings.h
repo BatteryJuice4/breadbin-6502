@@ -44,6 +44,7 @@ typedef struct {
 
 typedef struct {
     bool fast_load;             // with the 1541: plain KERNAL LOADs answered instantly
+    bool drive_light;           // show the 1541's busy light over the picture
 } disk_settings_t;
 
 typedef enum {

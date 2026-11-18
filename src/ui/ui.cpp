@@ -373,6 +373,8 @@ void tab_rom(ui_state_t* st) {
         ImGui::BeginDisabled(st->drive_pack_forced);
         if (ImGui::Checkbox("Fast loading", &st->settings->disk.fast_load)) st->act_disk_changed = true;
         ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Drive light", &st->settings->disk.drive_light)) st->act_disk_changed = true;
         dim_text(st->drive_pack_forced ? "This game needs every load to go through the 1541 drive."
                  : "Plain loads skip the 1541's slow transfer; fast loaders, saving and copy protection "
                    "still use the emulated drive. Turn off for a game that loads wrong.");
@@ -422,6 +424,18 @@ void script_overlay(const ui_state_t* st) {
         dl->AddText(font, size, ImVec2(pos.x + shadow, pos.y + shadow), IM_COL32(0, 0, 0, 200), t.text);
         dl->AddText(font, size, pos, IM_COL32((t.rgb >> 16) & 255, (t.rgb >> 8) & 255, t.rgb & 255, 255), t.text);
     }
+}
+
+// The 1541's busy light, like the red LED on the drive: a small lamp in the
+// bottom-right corner while the drive works (display only).
+static void drive_light_overlay(const ui_state_t* st) {
+    if (!st->drive_led || !st->settings->disk.drive_light) return;
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    const float u = ImGui::GetFontSize() * 0.5f;
+    const ImVec2 b(ds.x - u, ds.y - u), a(b.x - 2.4f * u, b.y - 0.9f * u);
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(a.x - 2, a.y - 2), ImVec2(b.x + 2, b.y + 2), IM_COL32(0, 0, 0, 160), u * 0.3f);
+    dl->AddRectFilled(a, b, IM_COL32(235, 40, 30, 255), u * 0.2f);
 }
 
 void toast_overlay(ui_state_t* st) {
@@ -1029,6 +1043,7 @@ void ui_frame(ui_state_t* st) {
             script_overlay(st);
             if (st->toast_frames > 0 && st->toast[0]) toast_overlay(st);
         }
+        drive_light_overlay(st);    // also while loading: that's when the drive works
     }
 }
 

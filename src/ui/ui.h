@@ -68,6 +68,7 @@ typedef struct {
     bool can_swap;              // disk/tape: offer "Swap disk/tape..."
     bool drive_present;         // the 1541 is emulated: offer the fast-load option
     bool drive_pack_forced;     // ... the game pack wants every load through the drive
+    bool drive_led;             // the 1541's busy light is on (this frame)
     bool loading;               // disk/tape loading at warp speed (no picture yet)
     float loading_seconds;      // emulated loading time so far
     char rom_path[SETTINGS_PATH_MAX];
