@@ -45,7 +45,7 @@ void gamepad_poll(void);
 const gamepad_t* gamepad_get(int index);    // NULL if index is out of range
 uint32_t gamepad_buttons_all(void);         // OR of all connected pads
 int gamepad_connected_count(void);
-const char* gamepad_backend(void);          // "evdev", "xinput" or "none"
+const char* gamepad_backend(void);          // "evdev", "xinput", "gamecontroller" or "none"
 // A connect/disconnect since the last call ("Gamepad connected: ..."), for a notice.
 bool gamepad_take_event(char* text, size_t size);
 

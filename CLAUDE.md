@@ -29,7 +29,8 @@ Repo-specific rules:
   pure `evpad_*` model tested in `tests/test_gamepad.c` with made-up devices, plus a
   device layer that rescans `/dev/input` about once a second), `gamepad_xinput.c`
   (Windows, XInput DLL loaded at run time; not compilable on the Linux dev machine, CI
-  builds it), none elsewhere. Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
+  builds it), `gamepad_gc.m` (macOS GameController framework; Objective-C, only
+  syntax-checked here against a stub header, CI compiles it), none elsewhere. Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
   named `Gamepad_*`; `settings_add_default_gamepad` fills actions that list none.
 - CRT filter: `src/video/crt.c`, its own sokol_gfx pipeline with hand-written GLSL 410 /
   GLSL ES 300 / MSL (keep the three in step; MSL isn't compiled on the Linux dev machine).

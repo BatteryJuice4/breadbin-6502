@@ -130,6 +130,11 @@ target_compile_options(bb_core PRIVATE ${BB_WARNINGS})
 if(NOT MSVC)
     target_link_libraries(bb_core PUBLIC m)
 endif()
+if(APPLE)
+    # macOS gamepads (Objective-C; checked only by the macOS CI build)
+    target_sources(bb_core PRIVATE src/platform/gamepad_gc.m)
+    target_link_libraries(bb_core PUBLIC "-framework GameController" "-framework Foundation")
+endif()
 
 # ---- application -----------------------------------------------------------
 set(BB_SOKOL_IMPL src/platform/sokol_impl.c)

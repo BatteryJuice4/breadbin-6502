@@ -167,14 +167,15 @@ You can also pass `--sysroms <folder>`.
 
 Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
 
-**Gamepads** (Linux, FreeBSD and Windows; macOS later) work out of the box and
+**Gamepads** (Linux, FreeBSD, Windows and macOS) work out of the box and
 can be plugged in at any time: d-pad or left stick to move, A or B to fire, Start to open
 the menu, which the d-pad, A (select), B (back) and LB/RB (switch tabs) control. On Linux,
 pads are read from `/dev/input` (your desktop normally gives the logged-in user access);
 on FreeBSD also from `/dev/input`, which is root-only by default: allow your user with a
 devfs rule, e.g. in `/etc/devfs.rules` `[localrules=10]` + `add path 'input/event*' mode 0660
 group operator` (and `devfs_system_ruleset="localrules"` in `/etc/rc.conf`, user in group
-`operator`); on Windows through XInput, so Xbox-compatible pads. Every connected pad drives the same
+`operator`); on Windows through XInput, so Xbox-compatible pads; on macOS through Apple's
+GameController framework (Xbox, PlayStation and MFi pads paired with the Mac). Every connected pad drives the same
 joystick.
 
 Command-line options: `[game file]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
