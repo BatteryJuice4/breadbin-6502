@@ -25,6 +25,11 @@ Repo-specific rules:
   (`on_frame` before, `on_after_frame` + `on_write` after) and restart whenever
   `cheats_first` is set. Write watches: `core_watch_write`. Anything that would let a
   script see the host (time, files, addresses) breaks the sandbox or determinism.
+- Trusted plugins: `src/mods/plugin.h` (interface for game repos), `plugin.c` (registry,
+  `[plugin.x]` config, instances). Game repos set `BB_PLUGIN_SOURCES`; CMake generates
+  `plugins_registry.c` (from `cmake/plugins_registry.c.in`) for the executable only, so
+  the launcher itself ships none. `examples/plugins/autofire.c` is the reference and is
+  built into `test_plugins`. Plugins run before scripts in `step_frame`.
 - Diagnostic replays live in `src/replay/`. Every emulated frame in the app goes
   through `step_frame()` in `main.c` (live or replayed input, cheats, autostart,
   fingerprint), so anything that affects emulation must happen there or at game

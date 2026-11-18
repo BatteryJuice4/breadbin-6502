@@ -112,6 +112,8 @@ launcher, your dump's SHA-1 (if the mod asks for one), its dependencies and conf
   network, no clock; memory and time limits). They can read and write RAM, change the
   joystick input, react to writes and show text over the picture. A script that fails
   is switched off and the Mods tab says why.
+- **Plugin** mods switch on native plugins that a game's own build includes (never
+  code from the mod itself). Game repos: [docs/plugins.md](docs/plugins.md).
 
 How to make one: [docs/mods.md](docs/mods.md).
 

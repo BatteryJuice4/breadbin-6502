@@ -11,6 +11,8 @@
       cheat    RAM writes, every frame ("freeze") or once after loading
       palette  a 16-colour palette the player can pick in Video
       script   a sandboxed Lua script run with every frame (mods/script.h)
+      plugin   only switches on built-in plugins (mods/plugin.h); any type may
+               list plugins, with settings in [plugin.<name>] tables
 
     Parsing is pure: files come through a reader callback, so the same code
     serves zips, folders and tests. Anything invalid makes the mod unusable with
@@ -32,13 +34,21 @@ extern "C" {
 #define MOD_MAX_CHEATS 64
 #define MOD_MAX_CHEAT_BYTES 16
 #define MOD_MAX_SCRIPT (256 * 1024)     // bytes of Lua source
+#define MOD_MAX_PLUGIN_CFG 64           // [plugin.<name>] settings, all plugins together
 
 typedef enum {
     MOD_TYPE_PATCH = 0,
     MOD_TYPE_CHEAT,
     MOD_TYPE_PALETTE,
     MOD_TYPE_SCRIPT,
+    MOD_TYPE_PLUGIN,
 } mod_type_t;
+
+typedef struct mod_plugin_cfg {
+    char plugin[MOD_ID_MAX];
+    char key[48];
+    char value[160];            // as text (strings as written, numbers/booleans formatted)
+} mod_plugin_cfg_t;
 
 typedef struct {
     char id[MOD_ID_MAX];
@@ -70,7 +80,7 @@ typedef struct {
     bool freeze;                // true: every frame; false: once, after loading
 } mod_cheat_t;
 
-typedef struct {
+typedef struct mod {
     // manifest
     char id[MOD_ID_MAX];
     char name[96];
@@ -88,6 +98,8 @@ typedef struct {
     char conflicts[MOD_MAX_LIST][MOD_ID_MAX];
     int plugin_count;
     char plugins[MOD_MAX_LIST][MOD_ID_MAX];
+    int plugin_cfg_count;
+    mod_plugin_cfg_t* plugin_cfg;   // owned
     // patch
     int patch_count;
     mod_patch_t* patches;       // owned (malloc'd, patch_count entries)

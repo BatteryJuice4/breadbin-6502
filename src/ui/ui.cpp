@@ -1,5 +1,6 @@
 // Launcher UI: Select-ROM screen, in-game menu, built-in file browser.
 #include "ui/ui.h"
+#include "mods/plugin.h"
 
 #include "imgui.h"
 #include "sokol_app.h"
@@ -715,6 +716,21 @@ void mod_row(ui_state_t* st, int index, int order_pos) {
     ImGui::PopID();
 }
 
+// Trusted plugins compiled into this executable; mods can switch them on.
+void built_in_plugins(void) {
+    if (plugin_count() == 0) return;
+    ImGui::SeparatorText("Plugins built into this game");
+    for (int i = 0; i < plugin_count(); i++) {
+        const bb_plugin_t* p = plugin_get(i);
+        ImGui::BulletText("%s", p->name);
+        if (p->description && p->description[0]) {
+            ImGui::SameLine();
+            dim_text("%s", p->description);
+        }
+    }
+    dim_text("A mod can switch these on. They do nothing by themselves.");
+}
+
 void tab_mods(ui_state_t* st) {
     modset_t* ms = st->mods;
     if (!ms) {
@@ -740,6 +756,7 @@ void tab_mods(ui_state_t* st) {
     if (ms->count == 0) {
         dim_text("No mods installed. Mods come as .c64mod files: use \"Install mod...\" to add one. "
                  "Mods are off until you enable them here.");
+        built_in_plugins();
         return;
     }
     ImGui::SeparatorText("Enabled (in load order: later mods win)");
@@ -753,6 +770,7 @@ void tab_mods(ui_state_t* st) {
         shown++;
     }
     if (!shown) dim_text("All mods are enabled.");
+    built_in_plugins();
 }
 
 void menu_screen(ui_state_t* st) {

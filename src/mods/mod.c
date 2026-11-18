@@ -1,6 +1,7 @@
 // Mod manifests and packages (see mod.h, docs/mods.md).
 #include "mods/mod.h"
 
+#include "mods/plugin.h"
 #include "mods/zip.h"
 #include "rom/rom_file.h"
 #include "settings/toml_util.h"
@@ -19,6 +20,7 @@ const char* mod_type_name(mod_type_t t) {
         case MOD_TYPE_CHEAT: return "cheat";
         case MOD_TYPE_PALETTE: return "palette";
         case MOD_TYPE_SCRIPT: return "script";
+        case MOD_TYPE_PLUGIN: return "plugin";
     }
     return "?";
 }
@@ -37,6 +39,7 @@ void mod_free(mod_t* m) {
     free(m->patches);
     for (int i = 0; i < m->file_count; i++) free(m->files[i].data);
     free(m->script);
+    free(m->plugin_cfg);
     memset(m, 0, sizeof(*m));
 }
 
@@ -215,6 +218,63 @@ static bool parse_script(toml_datum_t top, mod_t* m, mod_read_fn read, void* use
     return true;
 }
 
+// plugins = [...] names, and their [plugin.<name>] settings (kept as text).
+static bool parse_plugin_cfg(toml_datum_t top, mod_t* m, tu_warn_t* w, char* err, size_t err_size) {
+    for (int i = 0; i < m->plugin_count; i++) {
+        if (!plugin_name_valid(m->plugins[i])) {
+            snprintf(err, err_size, "plugins: \"%s\" isn't a plugin name (a-z 0-9 _)", m->plugins[i]);
+            return false;
+        }
+    }
+    toml_datum_t t = toml_get(top, "plugin");
+    if (t.type == TOML_UNKNOWN) return true;
+    if (t.type != TOML_TABLE) { snprintf(err, err_size, "plugin: expected [plugin.<name>] tables"); return false; }
+    for (int i = 0; i < t.u.tab.size; i++) {
+        const char* name = t.u.tab.key[i];
+        const toml_datum_t sub = t.u.tab.value[i];
+        bool listed = false;
+        for (int k = 0; k < m->plugin_count && !listed; k++) listed = !strcmp(m->plugins[k], name);
+        if (!listed) { tu_warn(w, "[plugin.%.60s] is for a plugin this mod doesn't list in plugins", name); continue; }
+        if (sub.type != TOML_TABLE) { snprintf(err, err_size, "plugin.%.60s: expected a table", name); return false; }
+        for (int j = 0; j < sub.u.tab.size; j++) {
+            if (m->plugin_cfg_count >= MOD_MAX_PLUGIN_CFG) {
+                snprintf(err, err_size, "more than %d plugin settings", MOD_MAX_PLUGIN_CFG);
+                return false;
+            }
+            const char* key = sub.u.tab.key[j];
+            const toml_datum_t v = sub.u.tab.value[j];
+            if (strlen(key) >= sizeof(m->plugin_cfg[0].key)) {
+                snprintf(err, err_size, "plugin.%.60s: key \"%.40s...\" is too long", name, key);
+                return false;
+            }
+            if (!m->plugin_cfg) {
+                m->plugin_cfg = calloc(MOD_MAX_PLUGIN_CFG, sizeof(mod_plugin_cfg_t));
+                if (!m->plugin_cfg) { snprintf(err, err_size, "out of memory"); return false; }
+            }
+            mod_plugin_cfg_t* c = &m->plugin_cfg[m->plugin_cfg_count];
+            snprintf(c->plugin, sizeof(c->plugin), "%s", name);
+            snprintf(c->key, sizeof(c->key), "%s", key);
+            switch (v.type) {
+                case TOML_STRING:
+                    if (strlen(v.u.s) >= sizeof(c->value)) {
+                        snprintf(err, err_size, "plugin.%.60s.%s: the value is too long", name, key);
+                        return false;
+                    }
+                    snprintf(c->value, sizeof(c->value), "%s", v.u.s);
+                    break;
+                case TOML_INT64: snprintf(c->value, sizeof(c->value), "%lld", (long long)v.u.int64); break;
+                case TOML_FP64: snprintf(c->value, sizeof(c->value), "%.17g", v.u.fp64); break;
+                case TOML_BOOLEAN: snprintf(c->value, sizeof(c->value), "%s", v.u.boolean ? "true" : "false"); break;
+                default:
+                    snprintf(err, err_size, "plugin.%.60s.%s: only strings, numbers and booleans", name, key);
+                    return false;
+            }
+            m->plugin_cfg_count++;
+        }
+    }
+    return true;
+}
+
 static bool parse_cheats(toml_datum_t top, mod_t* m, tu_warn_t* w, char* err, size_t err_size) {
     toml_datum_t arr = toml_get(top, "cheat");
     if (arr.type != TOML_ARRAY || arr.u.arr.size == 0) { snprintf(err, err_size, "a cheat mod needs [[cheat]] entries"); return false; }
@@ -297,7 +357,7 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
     char type[16] = "";
     static const char* const keys[] = { "id", "name", "version", "author", "description", "game",
         "min_launcher_version", "requires_sha1", "dependencies", "conflicts", "plugins", "type",
-        "patch", "patch_files", "cheat", "palette", "script", NULL };
+        "patch", "patch_files", "cheat", "palette", "script", "plugin", NULL };
     check_keys(top, keys, &w, "mod");
     if (!get_str(top, "id", out->id, sizeof(out->id), true, e, sizeof(e))) goto done;
     if (!mod_id_valid(out->id)) { snprintf(e, sizeof(e), "id \"%s\" may only use a-z 0-9 - _ .", out->id); goto done; }
@@ -337,6 +397,7 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
     }
     if (!get_list(top, "conflicts", &out->conflicts[0][0], MOD_ID_MAX, MOD_MAX_LIST, &out->conflict_count, e, sizeof(e))) goto done;
     if (!get_list(top, "plugins", &out->plugins[0][0], MOD_ID_MAX, MOD_MAX_LIST, &out->plugin_count, e, sizeof(e))) goto done;
+    if (!parse_plugin_cfg(top, out, &w, e, sizeof(e))) goto done;
     if (!get_str(top, "type", type, sizeof(type), true, e, sizeof(e))) goto done;
     if (!strcmp(type, "patch")) {
         out->type = MOD_TYPE_PATCH;
@@ -347,11 +408,14 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
     } else if (!strcmp(type, "palette")) {
         out->type = MOD_TYPE_PALETTE;
         if (!parse_palette(top, out, &w, e, sizeof(e))) goto done;
+    } else if (!strcmp(type, "plugin")) {
+        out->type = MOD_TYPE_PLUGIN;
+        if (out->plugin_count == 0) { snprintf(e, sizeof(e), "a plugin mod needs plugins = [\"name\"]"); goto done; }
     } else if (!strcmp(type, "script")) {
         out->type = MOD_TYPE_SCRIPT;
         if (!parse_script(top, out, read, user, e, sizeof(e))) goto done;
     } else {
-        snprintf(e, sizeof(e), "type \"%s\" must be patch, cheat, palette or script", type);
+        snprintf(e, sizeof(e), "type \"%s\" must be patch, cheat, palette, script or plugin", type);
         goto done;
     }
     ok = true;

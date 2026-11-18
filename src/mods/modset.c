@@ -3,6 +3,7 @@
 
 #include "gamepack/gamepack.h"
 #include "mods/patch.h"
+#include "mods/plugin.h"
 #include "platform/paths.h"
 #include "rom/rom_file.h"
 #include "rom/sha1.h"
@@ -242,9 +243,11 @@ static bool own_check(const modset_t* s, mod_entry_t* e) {
             return false;
         }
     }
-    if (m->plugin_count > 0) {
-        snprintf(st, ss, "Needs the built-in plugin \"%s\", which this game doesn't include.", m->plugins[0]);
-        return false;
+    for (int i = 0; i < m->plugin_count; i++) {
+        if (!plugin_find(m->plugins[i])) {
+            snprintf(st, ss, "Needs the built-in plugin \"%s\", which this game doesn't include.", m->plugins[i]);
+            return false;
+        }
     }
     if (m->requires_count > 0) {
         bool match = false;

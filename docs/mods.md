@@ -8,6 +8,7 @@ A mod changes a game without touching the player's ROM file. There are four kind
 | `cheat` | Writes to the C64's RAM before every frame, or once | 0.3.0 |
 | `palette` | Adds a 16-colour palette to the Video tab | 0.3.0 |
 | `script` | Runs a sandboxed Lua script with every frame | 0.5.0 |
+| `plugin` | Switches on plugins built into the game ([plugins.md](plugins.md)) | 0.5.0 |
 
 Set `min_launcher_version = "0.5.0"` in script mods, so older launchers explain why
 they can't run them.
@@ -20,8 +21,8 @@ and any data files it needs. Players install it from the **Mods** tab.
 A package may only contain data files: `.toml`, `.ips`, `.bps`, `.txt`, `.md`, `.png`
 and `.lua` (script mods' source, run in the sandbox below). Anything else (`.exe`, `.dll`, `.so`, ...) and the
 launcher refuses the whole package. Mods never run native code. Native features come
-only from trusted plugins compiled into a game's executable, which a mod can ask for in
-`plugins` (none exist yet, so such a mod can't be enabled).
+only from trusted plugins compiled into a game's executable, which a mod can switch on
+with `plugins` and `type = "plugin"`: see [plugins.md](plugins.md).
 
 Limits: 256 files, 16 MB per file, 64 MB in all; stored or deflate compression; no
 encryption.

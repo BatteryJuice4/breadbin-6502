@@ -19,6 +19,7 @@
 #include "media/media.h"
 #include "media/tap.h"
 #include "mods/modset.h"
+#include "mods/plugin.h"
 #include "mods/script.h"
 #include "replay/replay.h"
 #include "rom/sha1.h"
@@ -88,6 +89,7 @@ static struct {
     char patch_sig[2048];                   // patch mods applied to the loaded game
     bool cheats_first;                      // next played frame is the first since load/reset/change
     scriptset_t* scripts;                   // running script mods (restarted when cheats_first)
+    pluginset_t* plugins;                   // running built-in plugins (likewise)
     replay_t rec;                           // replay being recorded
     bool recording;
     replay_t play;                          // replay being played back
@@ -1056,37 +1058,44 @@ static void end_boot(void) {
     fprintf(stderr, "breadbin-6502: loaded after %.1f s of emulated time\n", app.ui.loading_seconds);
 }
 
-// A script mod stopped (error, too slow, out of memory): disable it with the reason.
-static void script_failed(const char* id, const char* msg) {
-    fprintf(stderr, "breadbin-6502: mod \"%s\": the script stopped: %s\n", id, msg);
+// A mod's script or plugin stopped (error, too slow, out of memory, refused to
+// start): disable the mod with the reason, until the game is loaded again.
+static void mod_runtime_failed(const char* id, const char* what, const char* msg) {
+    fprintf(stderr, "breadbin-6502: mod \"%s\": %s: %s\n", id, what, msg);
     const int i = modset_find(&app.mods, id);
     if (i >= 0) {
         mod_entry_t* e = app.mods.entries[i];
-        e->failed = true;           // until the game is loaded again
+        e->failed = true;
         e->usable = false;
-        snprintf(e->status, sizeof(e->status), "The script stopped: %.280s", msg);
+        snprintf(e->status, sizeof(e->status), "%s: %.270s", what, msg);
     }
     snprintf(app.ui.toast, sizeof(app.ui.toast), "Mod \"%.60s\" stopped working (see the Mods tab).", id);
     app.ui.toast_frames = 240;
 }
 
-// (Re)start the usable script mods in load order, each in a fresh Lua state.
-static void start_scripts(void) {
+// (Re)start the usable mods' plugins and scripts in load order (fresh state each).
+static void start_mod_runtime(void) {
     scriptset_clear(app.scripts, app.core);
+    pluginset_clear(app.plugins, app.core);
     for (int i = 0; i < app.mods.order_count; i++) {
         mod_entry_t* e = app.mods.entries[app.mods.order[i]];
-        if (!e->usable || e->mod.type != MOD_TYPE_SCRIPT) continue;
+        if (!e->usable) continue;
         char err[256];
-        if (!scriptset_add(app.scripts, app.core, e->mod.id, e->mod.script_name, e->mod.script,
+        if (e->mod.plugin_count > 0 && !pluginset_add_mod(app.plugins, app.core, &e->mod, err, sizeof(err))) {
+            mod_runtime_failed(e->mod.id, "A plugin didn't start", err);
+            continue;
+        }
+        if (e->mod.type == MOD_TYPE_SCRIPT &&
+            !scriptset_add(app.scripts, app.core, e->mod.id, e->mod.script_name, e->mod.script,
                            e->mod.script_size, err, sizeof(err))) {
-            script_failed(e->mod.id, err);
+            mod_runtime_failed(e->mod.id, "The script stopped", err);
         }
     }
 }
 
 static void service_scripts(void) {
     char id[64], msg[256], line[256];
-    while (scriptset_take_failure(app.scripts, id, sizeof(id), msg, sizeof(msg))) script_failed(id, msg);
+    while (scriptset_take_failure(app.scripts, id, sizeof(id), msg, sizeof(msg))) mod_runtime_failed(id, "The script stopped", msg);
     while (scriptset_take_log(app.scripts, line, sizeof(line))) fprintf(stderr, "mod %s\n", line);
 }
 
@@ -1100,7 +1109,8 @@ static void step_frame(void) {
     else if (!app.booting) input_collect(&in);
     replay_input_t eff = in;
     if (!app.booting) {
-        if (app.cheats_first) start_scripts();
+        if (app.cheats_first) start_mod_runtime();
+        pluginset_before_frame(app.plugins, app.core, eff.joy);
         scriptset_before_frame(app.scripts, app.core, eff.joy);
     }
     replay_input_apply(app.core, &eff);
@@ -1110,6 +1120,7 @@ static void step_frame(void) {
     }
     core_run_frame(app.core);
     if (!app.booting) {
+        pluginset_after_frame(app.plugins, app.core);
         scriptset_after_frame(app.scripts, app.core);
         service_scripts();
     }
@@ -1260,13 +1271,14 @@ static void cleanup_cb(void) {
     save_settings();
     ui_shutdown();
     eject_media();
+    scriptset_destroy(app.scripts, app.core);
+    pluginset_destroy(app.plugins, app.core);   // plugins stop while the machine still exists
     core_destroy(app.core);
     audio_shutdown();
     gamepad_shutdown();
     video_shutdown();
     image_free(&app.icon);
     gamepack_loaded_free(&app.gp);
-    scriptset_destroy(app.scripts, NULL);
     modset_free(&app.mods);
 }
 
@@ -1405,7 +1417,10 @@ static core_video_std_t video_std(void) {
     return (app.gp.present && app.gp.pack.ntsc) ? CORE_VIDEO_NTSC : CORE_VIDEO_PAL;
 }
 
+void bb_register_plugins(void);     // generated from BB_PLUGIN_SOURCES (cmake/plugins_registry.c.in)
+
 sapp_desc sokol_main(int argc, char* argv[]) {
+    bb_register_plugins();
     if (!parse_args(argc, argv)) {
         exit(2);
     }
@@ -1439,7 +1454,8 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
     app.frame_period = 1.0 / core_frame_rate(app.core);
     app.scripts = scriptset_create();
-    if (!app.scripts) {
+    app.plugins = pluginset_create();
+    if (!app.scripts || !app.plugins) {
         fprintf(stderr, "breadbin-6502: out of memory\n");
         exit(1);
     }

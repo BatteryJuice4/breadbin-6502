@@ -48,6 +48,10 @@ set_target_properties(bb_external_toml PROPERTIES C_EXTENSIONS ON)
 add_library(bb_external_lua STATIC src/mods/lua_impl.c)
 target_include_directories(bb_external_lua SYSTEM PUBLIC external/lua)
 set_target_properties(bb_external_lua PROPERTIES C_EXTENSIONS ON)
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    # false positive in lauxlib.c at -O2/-O3 (vendored, unmodified)
+    target_compile_options(bb_external_lua PRIVATE -Wno-stringop-overflow)
+endif()
 
 # stb_image (public domain / MIT), PNG decoding for game pack branding
 add_library(bb_external_stb INTERFACE)
@@ -126,6 +130,7 @@ add_library(bb_core STATIC
     src/replay/replay.c
     src/state/savestate.c
     src/mods/script.c
+    src/mods/plugin.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
     ${BB_GEN_DIR}/openroms_chargen.c
@@ -170,6 +175,30 @@ if(BB_HAVE_NFD)
     target_compile_definitions(breadbin-6502 PRIVATE BB_HAVE_NFD)
 endif()
 target_compile_options(breadbin-6502 PRIVATE ${BB_WARNINGS})
+
+# Trusted plugins (docs/plugins.md): native code a game repo builds into its
+# executable. A file name.c defines `const bb_plugin_t bb_plugin_name`; the
+# generated plugins_registry.c registers them at startup. Paths are relative to
+# the top-level project.
+set(BB_PLUGIN_SOURCES "" CACHE STRING "Trusted plugin sources to build in (name.c defines bb_plugin_name)")
+set(BB_PLUGIN_DECLS "")
+set(BB_PLUGIN_LIST "")
+foreach(_bb_src IN LISTS BB_PLUGIN_SOURCES)
+    get_filename_component(_bb_abs "${_bb_src}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    get_filename_component(_bb_name "${_bb_abs}" NAME_WE)
+    if(NOT _bb_name MATCHES "^[a-z0-9_]+$")
+        message(FATAL_ERROR "BB_PLUGIN_SOURCES: ${_bb_src}: plugin file names may only use a-z 0-9 _")
+    endif()
+    if(NOT EXISTS "${_bb_abs}")
+        message(FATAL_ERROR "BB_PLUGIN_SOURCES: ${_bb_abs} doesn't exist")
+    endif()
+    target_sources(breadbin-6502 PRIVATE "${_bb_abs}")
+    string(APPEND BB_PLUGIN_DECLS "extern const bb_plugin_t bb_plugin_${_bb_name};\n")
+    string(APPEND BB_PLUGIN_LIST "&bb_plugin_${_bb_name}, ")
+    message(STATUS "Built-in plugin: ${_bb_name}")
+endforeach()
+configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/plugins_registry.c.in ${BB_GEN_DIR}/plugins_registry.c @ONLY)
+target_sources(breadbin-6502 PRIVATE ${BB_GEN_DIR}/plugins_registry.c)
 target_compile_definitions(breadbin-6502 PRIVATE BB_VERSION="${PROJECT_VERSION}")
 
 if(EMSCRIPTEN)
@@ -259,6 +288,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_script PRIVATE bb_core)
     target_compile_options(test_script PRIVATE ${BB_WARNINGS})
     add_test(NAME script COMMAND test_script)
+
+    add_executable(test_plugins tests/test_plugins.c examples/plugins/autofire.c)
+    target_link_libraries(test_plugins PRIVATE bb_core)
+    target_compile_options(test_plugins PRIVATE ${BB_WARNINGS})
+    add_test(NAME plugins COMMAND test_plugins)
 
     add_executable(test_media tests/test_media.c)
     target_link_libraries(test_media PRIVATE bb_core)
