@@ -4,6 +4,7 @@
 #include "input/keynames.h"
 #include "platform/gamepad.h"
 #include "platform/paths.h"
+#include "video/view.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,7 +45,7 @@ static void test_roundtrip(void) {
     settings_t a, b;
     settings_default(&a);
     strcpy(a.rom_path, "C:\\Games\\C64\\\"quoted\" name\tx.crt");
-    a.video = (video_settings_t){ 5, true, false, false, true, VIDEO_FILTER_LINEAR, "mod:my-palette" };
+    a.video = (video_settings_t){ 5, true, false, false, true, VIDEO_FILTER_LINEAR, "mod:my-palette", true, 0 };
     a.mods_enabled_count = 2;
     strcpy(a.mods_enabled[0], "zeta");
     strcpy(a.mods_enabled[1], "alpha.v2");
@@ -161,6 +162,8 @@ static void test_files(void) {
     settings_default(&a);
     strcpy(a.rom_path, "/tmp/some game.crt");
     a.video.crop_border = true;
+    a.video.extended_view = true;
+    a.video.extended_max_width = 384;      // from the game pack: never saved
     CHECK(settings_save_file(&a, path, err, sizeof(err)), "save: %s", err);
     CHECK(platform_file_exists(path), "saved file missing");
     // overwrite (exercises atomic replace of an existing file)
@@ -170,6 +173,7 @@ static void test_files(void) {
     settings_default(&b);
     CHECK(settings_load_file(&b, path, &missing, err, sizeof(err), warns, sizeof(warns)) && !missing, "load: %s", err);
     CHECK(b.video.window_scale == 4 && b.video.crop_border && !strcmp(b.rom_path, a.rom_path), "loaded values");
+    CHECK(b.video.extended_view && b.video.extended_max_width == 0, "extended view saved, pack width not");
     CHECK(!settings_load_file(&b, "test_settings_tmp/none.toml", &missing, err, sizeof(err), NULL, 0) && missing,
           "missing file not reported");
     remove(path);
@@ -179,7 +183,31 @@ static void test_files(void) {
     CHECK(!platform_settings_path("", p, sizeof(p)), "empty game id accepted");
 }
 
+static void test_view_rect(void) {
+    // PAL geometry as the core reports it
+    const core_video_t fb = { .width = 520, .height = 312, .screen_x = 0, .screen_y = 0, .screen_w = 392,
+                              .screen_h = 272, .display_x = 32, .display_y = 36, .display_w = 320, .display_h = 200 };
+    video_settings_t s = { .crop_border = false, .extended_view = true, .extended_max_width = 384 };
+    int x, y, w, h;
+    video_view_rect(&fb, &s, &x, &y, &w, &h);
+    CHECK(x == 0 && y == 0 && w == 392 && h == 272, "uncropped: %d,%d %dx%d", x, y, w, h);
+    s.crop_border = true;
+    s.extended_view = false;
+    video_view_rect(&fb, &s, &x, &y, &w, &h);
+    CHECK(x == 32 && y == 36 && w == 320 && h == 200, "cropped: %d,%d %dx%d", x, y, w, h);
+    s.extended_view = true;
+    video_view_rect(&fb, &s, &x, &y, &w, &h);
+    CHECK(x == 0 && y == 36 && w == 384 && h == 200, "extended 384: %d,%d %dx%d", x, y, w, h);
+    s.extended_max_width = 1000;            // clamped to what the core draws, kept inside it
+    video_view_rect(&fb, &s, &x, &y, &w, &h);
+    CHECK(x == 0 && w == 392 && h == 200, "extended max: %d %d", x, w);
+    s.extended_max_width = 0;               // pack doesn't support it: setting ignored
+    video_view_rect(&fb, &s, &x, &y, &w, &h);
+    CHECK(x == 32 && w == 320, "unsupported: %d %d", x, w);
+}
+
 int main(void) {
+    test_view_rect();
     test_keynames();
     test_roundtrip();
     test_quick_keys();

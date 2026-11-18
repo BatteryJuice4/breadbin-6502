@@ -30,6 +30,9 @@ Repo-specific rules:
   `plugins_registry.c` (from `cmake/plugins_registry.c.in`) for the executable only, so
   the launcher itself ships none. `examples/plugins/autofire.c` is the reference and is
   built into `test_plugins`. Plugins run before scripts in `step_frame`.
+- Extended view: `src/video/view.c` (`video_view_rect`, pure and tested in
+  `test_settings`) picks the shown rectangle; display only, the VIC still draws its fixed
+  392-pixel screen, so emulation (sprite collisions included) never depends on it.
 - Diagnostic replays live in `src/replay/`. Every emulated frame in the app goes
   through `step_frame()` in `main.c` (live or replayed input, cheats, autostart,
   fingerprint), so anything that affects emulation must happen there or at game

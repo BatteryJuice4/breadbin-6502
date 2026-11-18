@@ -72,12 +72,23 @@ aspect_correction = true
 crop_border       = false  # show only the 320x200 picture
 filter            = "nearest"   # "nearest" | "smooth" | "crt" (launcher 0.4.0+)
 palette           = "colodore"  # default palette: "colodore", "pepto", or "mod:<mod id>"
-extended_view_max_width = 0     # reserved: 0 = no extended (widescreen) view
+extended_view_max_width = 0     # 0 = no extended view; else its widest picture in pixels (launcher 0.5.0+)
 ```
 
 Everything except `id` and `title` is optional. Unknown keys and invalid values are
 reported as warnings on the console and otherwise ignored, so a typo never stops a game
 from starting.
+
+### Extended view
+
+Some games draw sprites or effects in the border. If `extended_view_max_width` is more
+than 320, the Video tab offers **Extended view**: with the border cropped, the picture
+keeps its 200 lines but widens evenly into the side borders, up to that many pixels (the
+core draws at most 392, so larger values act as 392). It's off until the player turns it
+on (`[video] extended_view` in their settings), and it's display only: the game runs
+exactly the same. A mod that changes the game to use the extra space (a script mod or a
+trusted plugin) has to come with the game, never from the launcher. Leave it at 0 for
+games with nothing worth seeing in the border.
 
 ### Key names
 

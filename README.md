@@ -65,7 +65,8 @@ Press **Esc** during play to pause and open the menu:
 - **Video:** window scale (applies on the next launch), fullscreen, integer scaling,
   aspect correction, border crop, filter (sharp, smooth, or CRT: scanlines and a faint
   RGB mask, strongest from about 3x size), colour palette
-  (Colodore, Pepto, or one from a palette mod)
+  (Colodore, Pepto, or one from a palette mod), extended view (a wider picture that
+  shows part of the side borders, for games whose pack allows it)
 - **Audio:** volume, mute, latency
 - **Input:** joystick port (1 or 2), bindings for the joystick (four keys or gamepad
   buttons per direction; click to rebind, then press a key or a gamepad button;

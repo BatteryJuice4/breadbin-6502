@@ -105,6 +105,7 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         tu_get_bool(v, "integer_scaling", &t.video.integer_scaling, &w, "video");
         tu_get_bool(v, "aspect_correction", &t.video.aspect_correction, &w, "video");
         tu_get_bool(v, "crop_border", &t.video.crop_border, &w, "video");
+        tu_get_bool(v, "extended_view", &t.video.extended_view, &w, "video");
         toml_datum_t f = toml_get(v, "filter");
         if (f.type == TOML_STRING) {
             if (!strcmp(f.u.s, "nearest")) t.video.filter = VIDEO_FILTER_NEAREST;
@@ -227,6 +228,7 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "integer_scaling = %s\n", s->video.integer_scaling ? "true" : "false");
     put(&o, "aspect_correction = %s\n", s->video.aspect_correction ? "true" : "false");
     put(&o, "crop_border = %s\n", s->video.crop_border ? "true" : "false");
+    put(&o, "extended_view = %s\n", s->video.extended_view ? "true" : "false");
     put(&o, "filter = \"%s\"\n", s->video.filter == VIDEO_FILTER_LINEAR ? "smooth" :
                                   s->video.filter == VIDEO_FILTER_CRT ? "crt" : "nearest");
     put(&o, "palette = ");

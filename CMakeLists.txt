@@ -122,6 +122,7 @@ add_library(bb_core STATIC
     src/input/keynames.c
     src/util/crc32.c
     src/video/palettes.c
+    src/video/view.c
     src/util/stb_impl.c
     src/mods/zip.c
     src/mods/mod.c

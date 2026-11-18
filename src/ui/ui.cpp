@@ -512,6 +512,16 @@ void tab_video(ui_state_t* st) {
     ch |= ImGui::Checkbox("Integer scaling", &v.integer_scaling);
     ch |= ImGui::Checkbox("Aspect correction (C64 pixels aren't square)", &v.aspect_correction);
     ch |= ImGui::Checkbox("Crop border", &v.crop_border);
+    if (v.extended_max_width > 0) {
+        ImGui::BeginDisabled(!v.crop_border);
+        ch |= ImGui::Checkbox("Extended view (wider picture)", &v.extended_view);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip(v.crop_border ? "Shows part of the side borders, up to %d pixels wide. Display only."
+                                            : "With the border shown, the whole picture is already visible.",
+                              v.extended_max_width);
+        }
+    }
     int filter = (int)v.filter;
     const char* filters[] = { "Nearest (sharp)", "Smooth", "CRT (scanlines)" };
     if (ImGui::Combo("Filter", &filter, filters, 3)) { v.filter = (video_filter_t)filter; ch = true; }

@@ -1,4 +1,5 @@
 #include "video/video.h"
+#include "video/view.h"
 #include "video/crt.h"
 #include "video/palettes.h"
 
@@ -77,18 +78,9 @@ void video_set_settings(const video_settings_t* s) {
     vs.settings = *s;
 }
 
-// Source rectangle inside the framebuffer according to the crop setting.
-static void source_rect(const core_video_t* fb, bool crop, int* x, int* y, int* w, int* h) {
-    if (crop) {
-        *x = fb->display_x; *y = fb->display_y; *w = fb->display_w; *h = fb->display_h;
-    } else {
-        *x = fb->screen_x; *y = fb->screen_y; *w = fb->screen_w; *h = fb->screen_h;
-    }
-}
-
 void video_window_size(const core_video_t* fb, const video_settings_t* s, int* out_w, int* out_h) {
     int x, y, w, h;
-    source_rect(fb, s->crop_border, &x, &y, &w, &h);
+    video_view_rect(fb, s, &x, &y, &w, &h);
     const float aspect = s->aspect_correction ? fb->pixel_aspect : 1.0f;
     *out_w = (int)lroundf((float)w * aspect * (float)s->window_scale);
     *out_h = h * s->window_scale;
@@ -113,7 +105,7 @@ void video_draw(const core_video_t* fb, bool dim) {
         return;
     }
     int sx, sy, sw, sh;
-    source_rect(fb, vs.settings.crop_border, &sx, &sy, &sw, &sh);
+    video_view_rect(fb, &vs.settings, &sx, &sy, &sw, &sh);
     if (sw <= 0 || sh <= 0 || sx < 0 || sy < 0 || sx + sw > fb->width || sy + sh > fb->height) {
         return;
     }

@@ -271,7 +271,12 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
             if (palette_id_valid(p.palette)) snprintf(d.video.palette, sizeof(d.video.palette), "%s", p.palette);
             else tu_warn(&w, "[video] palette: unknown palette \"%s\" (built in: colodore, pepto; or \"mod:<id>\")", p.palette);
         }
-        tu_get_int(v, "extended_view_max_width", 0, 1024, &p.extended_view_max_width, &w, "video");
+        if (tu_get_int(v, "extended_view_max_width", 0, 1024, &p.extended_view_max_width, &w, "video") &&
+            p.extended_view_max_width > 0 && p.extended_view_max_width <= 320) {
+            tu_warn(&w, "[video] extended_view_max_width: use 0 (off) or more than 320 pixels");
+            p.extended_view_max_width = 0;
+        }
+        d.video.extended_max_width = p.extended_view_max_width;
     }
 
     ok = true;

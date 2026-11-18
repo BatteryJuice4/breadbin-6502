@@ -32,6 +32,8 @@ typedef struct {
     bool crop_border;           // show only the 320x200 display window
     video_filter_t filter;
     char palette[72];           // palette id (see video/palettes.h)
+    bool extended_view;         // widen the cropped picture into the side borders
+    int extended_max_width;     // from the game pack, not saved: 0 = no extended view
 } video_settings_t;
 
 typedef struct {
