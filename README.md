@@ -43,7 +43,7 @@ packaging/linux/make-appimage.sh build      # Linux AppImage (needs appimagetool
 
 Packages contain the program, README, `NOTICE.txt` (license and where to get the
 source, as the AGPL requires) and the third-party licenses. They never contain ROMs.
-Game repos get packages named after their game (`BB_OUTPUT_NAME`, `BB_PACKAGE_VERSION`,
+Game repos get packages named after their game (`BB_OUTPUT_NAME`, `BB_PACKAGE_VERSION`, `BB_PACKAGE_README`,
 the pack's title and icon). The Linux AppImage doesn't bundle system libraries, so build
 it on the oldest distribution you want to support. The macOS `.app` isn't signed:
 the first time, open it with right-click → Open. CI builds all packages for version

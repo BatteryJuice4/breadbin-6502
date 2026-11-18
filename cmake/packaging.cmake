@@ -7,6 +7,7 @@
 #   packaging/linux/make-appimage.sh build                  # Linux AppImage (needs appimagetool)
 
 set(BB_PACKAGE_VERSION "${PROJECT_VERSION}" CACHE STRING "Version in package file names")
+set(BB_PACKAGE_README "" CACHE FILEPATH "README for packages (game repos: their own); the launcher's README then goes in docs/")
 set(BB_SOURCE_URL "" CACHE STRING "Where the corresponding source code is published (AGPL-3.0 section 6); written to NOTICE.txt")
 
 # Title for the desktop entry / bundle: the embedded game pack's, else the launcher's.
@@ -42,7 +43,7 @@ elseif(APPLE)
 else()
     include(GNUInstallDirs)
     set(_bb_bin "${CMAKE_INSTALL_BINDIR}")
-    set(_bb_doc "${CMAKE_INSTALL_DOCDIR}")
+    set(_bb_doc "${CMAKE_INSTALL_DATAROOTDIR}/doc/${BB_OUTPUT_NAME}")
 endif()
 
 if(APPLE)
@@ -81,8 +82,13 @@ install(TARGETS breadbin-6502
     BUNDLE DESTINATION ${_bb_bin})
 
 set(_bb_root "${CMAKE_CURRENT_LIST_DIR}/..")
-install(FILES ${_bb_root}/LICENSE ${_bb_root}/README.md ${CMAKE_BINARY_DIR}/packaging/NOTICE.txt
-    DESTINATION ${_bb_doc})
+install(FILES ${_bb_root}/LICENSE ${CMAKE_BINARY_DIR}/packaging/NOTICE.txt DESTINATION ${_bb_doc})
+if(BB_PACKAGE_README)
+    install(FILES ${BB_PACKAGE_README} DESTINATION ${_bb_doc} RENAME README.md)
+    install(FILES ${_bb_root}/README.md DESTINATION ${_bb_doc}/docs RENAME breadbin-6502.md)
+else()
+    install(FILES ${_bb_root}/README.md DESTINATION ${_bb_doc})
+endif()
 install(FILES ${_bb_root}/docs/gamepack.md ${_bb_root}/docs/mods.md DESTINATION ${_bb_doc}/docs)
 # Third-party licenses (everything vendored that ends up in the executable)
 install(FILES ${_bb_root}/external/chips/LICENSE DESTINATION ${_bb_doc}/licenses RENAME chips.txt)
