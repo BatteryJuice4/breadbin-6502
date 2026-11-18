@@ -242,7 +242,7 @@ bool savestate_compatible(const savestate_header_t* s, const savestate_header_t*
     } else if (strcmp(s->rom_sha1, now->rom_sha1) != 0) {
         snprintf(why, why_size, "It was saved with a different %s (%s).", s->media[0] ? s->media : "game", s->rom_name);
     } else if (s->ntsc != now->ntsc) {
-        snprintf(why, why_size, "It was saved on a %s machine; this one is %s.", s->ntsc ? "NTSC" : "PAL",
+        snprintf(why, why_size, "It was saved on %s machine; this one is %s.", s->ntsc ? "an NTSC" : "a PAL",
                  now->ntsc ? "NTSC" : "PAL");
     } else if (memcmp(s->sysrom_sha1, now->sysrom_sha1, sizeof(s->sysrom_sha1)) != 0) {
         snprintf(why, why_size, "It was saved with different system ROMs.");

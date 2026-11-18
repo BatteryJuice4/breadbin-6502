@@ -403,7 +403,10 @@ void tab_states(ui_state_t* st) {
         dim_text("%s", st->states_unavailable[0] ? st->states_unavailable : "Start a game to use save states.");
     }
     ImGui::BeginDisabled(!st->states_ready);
-    if (ImGui::BeginTable("slots", 3, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("slots", 3, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("slot", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("when", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("buttons", ImGuiTableColumnFlags_WidthFixed);
         for (int i = 0; i < UI_STATE_SLOTS; i++) {
             const ui_state_slot_t& s = st->state_slots[i];
             ImGui::PushID(i);
@@ -428,9 +431,9 @@ void tab_states(ui_state_t* st) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::TableNextColumn();
-                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetFontSize() * 24.0f);
-                ImGui::TextColored(kErrorColor, "%s", s.note);
-                ImGui::PopTextWrapPos();
+                ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+                ImGui::TextWrapped("%s", s.note);
+                ImGui::PopStyleColor();
             }
             ImGui::PopID();
         }
