@@ -25,6 +25,8 @@ static struct {
     sg_sampler smp_linear;
     video_settings_t settings;
     bool crt_pending;           // this frame's picture goes through the CRT shader
+    bool area_ok;               // video_screen_area
+    float area_x, area_y, area_px, area_py;
     crt_frame_t crt;
     uint32_t rgba[VIDEO_MAX_W * VIDEO_MAX_H];
 } vs;
@@ -92,12 +94,21 @@ void video_window_size(const core_video_t* fb, const video_settings_t* s, int* o
     *out_h = h * s->window_scale;
 }
 
+bool video_screen_area(float* x, float* y, float* px, float* py) {
+    *x = vs.area_x;
+    *y = vs.area_y;
+    *px = vs.area_px;
+    *py = vs.area_py;
+    return vs.area_ok;
+}
+
 void video_draw(const core_video_t* fb, bool dim) {
     const float win_w = sapp_widthf(), win_h = sapp_heightf();
     sgl_defaults();
     sgl_matrix_mode_projection();
     sgl_ortho(0.0f, win_w, win_h, 0.0f, -1.0f, 1.0f);
     vs.crt_pending = false;
+    vs.area_ok = false;
     if (!fb || !fb->pixels || fb->width > VIDEO_MAX_W || fb->height > VIDEO_MAX_H) {
         return;
     }
@@ -130,6 +141,11 @@ void video_draw(const core_video_t* fb, bool dim) {
     const float x0 = floorf((win_w - w) * 0.5f), y0 = floorf((win_h - h) * 0.5f);
     const float u1 = (float)sw / VIDEO_MAX_W, v1 = (float)sh / VIDEO_MAX_H;
     const float c = dim ? 0.35f : 1.0f;
+    vs.area_px = w / (float)sw;
+    vs.area_py = h / (float)sh;
+    vs.area_x = x0 + (float)(fb->display_x - sx) * vs.area_px;
+    vs.area_y = y0 + (float)(fb->display_y - sy) * vs.area_py;
+    vs.area_ok = true;
 
     if (vs.settings.filter == VIDEO_FILTER_CRT) {
         vs.crt = (crt_frame_t){

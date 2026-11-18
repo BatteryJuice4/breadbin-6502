@@ -19,6 +19,12 @@ Repo-specific rules:
 - Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS
   patches, `modset` = validation, load order, cheats, install). Format: `docs/mods.md`.
   Packages are untrusted input: keep the size caps and the data-files-only rule.
+- Script mods: `src/mods/script.c` (Lua host: sandbox, memory cap, instruction budget,
+  `bb` API) on Lua 5.4 in `external/lua`, built only through `src/mods/lua_impl.c` (fixed
+  string-hash seed; no io/os/package/debug compiled). Scripts run in `step_frame`
+  (`on_frame` before, `on_after_frame` + `on_write` after) and restart whenever
+  `cheats_first` is set. Write watches: `core_watch_write`. Anything that would let a
+  script see the host (time, files, addresses) breaks the sandbox or determinism.
 - Diagnostic replays live in `src/replay/`. Every emulated frame in the app goes
   through `step_frame()` in `main.c` (live or replayed input, cheats, autostart,
   fingerprint), so anything that affects emulation must happen there or at game

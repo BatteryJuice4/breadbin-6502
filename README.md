@@ -108,6 +108,10 @@ launcher, your dump's SHA-1 (if the mod asks for one), its dependencies and conf
   IPS or BPS files). Your ROM file is never changed.
 - **Cheat** mods write to RAM before every frame (e.g. lock the lives counter) or once.
 - **Palette** mods add a colour palette to the Video tab.
+- **Script** mods run a small Lua script with every frame, in a sandbox (no files, no
+  network, no clock; memory and time limits). They can read and write RAM, change the
+  joystick input, react to writes and show text over the picture. A script that fails
+  is switched off and the Mods tab says why.
 
 How to make one: [docs/mods.md](docs/mods.md).
 

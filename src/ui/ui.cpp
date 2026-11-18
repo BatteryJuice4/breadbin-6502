@@ -395,6 +395,26 @@ void loading_overlay(const ui_state_t* st) {
     ImGui::End();
 }
 
+// Text from script mods, drawn over the picture in C64 screen coordinates: one
+// text line is as tall as a C64 character (8 pixels).
+void script_overlay(const ui_state_t* st) {
+    if (!st->overlay_valid || st->script_text_count <= 0) return;
+    const ImGuiIO& io = ImGui::GetIO();
+    const float fbs = io.DisplayFramebufferScale.x > 0.0f ? io.DisplayFramebufferScale.x : 1.0f;
+    const float ox = st->overlay_x / fbs, oy = st->overlay_y / fbs;
+    const float px = st->overlay_px / fbs, py = st->overlay_py / fbs;
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const float size = 8.0f * py;
+    const float shadow = py > 1.0f ? py * 0.5f : 1.0f;
+    for (int i = 0; i < st->script_text_count; i++) {
+        const script_text_t& t = st->script_texts[i];
+        const ImVec2 pos(ox + (float)t.x * px, oy + (float)t.y * py);
+        dl->AddText(font, size, ImVec2(pos.x + shadow, pos.y + shadow), IM_COL32(0, 0, 0, 200), t.text);
+        dl->AddText(font, size, pos, IM_COL32((t.rgb >> 16) & 255, (t.rgb >> 8) & 255, t.rgb & 255, 255), t.text);
+    }
+}
+
 void toast_overlay(ui_state_t* st) {
     st->toast_frames--;
     const ImVec2 ds = ImGui::GetIO().DisplaySize;
@@ -969,7 +989,10 @@ void ui_frame(ui_state_t* st) {
     } else {
         g.browser_open = false;
         if (st->loading) loading_overlay(st);
-        else if (st->toast_frames > 0 && st->toast[0]) toast_overlay(st);
+        else {
+            script_overlay(st);
+            if (st->toast_frames > 0 && st->toast[0]) toast_overlay(st);
+        }
     }
 }
 

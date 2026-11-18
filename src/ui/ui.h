@@ -8,6 +8,7 @@
 #include <stdbool.h>
 
 #include "mods/modset.h"
+#include "mods/script.h"
 #include "settings/settings.h"
 #include "sokol_app.h"
 
@@ -120,6 +121,12 @@ typedef struct {
     int state_slot;
     // short notice shown over the game (e.g. "Saved"), counted down in display frames
     char toast[160];
+    // Script mod overlay text from the last frame (display only), and where the
+    // 320x200 screen area is (framebuffer pixels; see video_screen_area).
+    const script_text_t* script_texts;
+    int script_text_count;
+    bool overlay_valid;
+    float overlay_x, overlay_y, overlay_px, overlay_py;
     int toast_frames;
     // key capture for rebinding
     int capture_action;         // UI_CAPTURE_NONE, an input_action_t, or UI_CAPTURE_MENU_KEY / _QUICK_*

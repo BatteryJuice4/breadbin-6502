@@ -19,6 +19,7 @@
 #include "media/media.h"
 #include "media/tap.h"
 #include "mods/modset.h"
+#include "mods/script.h"
 #include "replay/replay.h"
 #include "rom/sha1.h"
 #include "platform/filedialog.h"
@@ -86,6 +87,7 @@ static struct {
     char mods_bundled[SETTINGS_PATH_MAX];   // the folder game pack's mods/ ("" = none)
     char patch_sig[2048];                   // patch mods applied to the loaded game
     bool cheats_first;                      // next played frame is the first since load/reset/change
+    scriptset_t* scripts;                   // running script mods (restarted when cheats_first)
     replay_t rec;                           // replay being recorded
     bool recording;
     replay_t play;                          // replay being played back
@@ -1054,19 +1056,63 @@ static void end_boot(void) {
     fprintf(stderr, "breadbin-6502: loaded after %.1f s of emulated time\n", app.ui.loading_seconds);
 }
 
+// A script mod stopped (error, too slow, out of memory): disable it with the reason.
+static void script_failed(const char* id, const char* msg) {
+    fprintf(stderr, "breadbin-6502: mod \"%s\": the script stopped: %s\n", id, msg);
+    const int i = modset_find(&app.mods, id);
+    if (i >= 0) {
+        mod_entry_t* e = app.mods.entries[i];
+        e->failed = true;           // until the game is loaded again
+        e->usable = false;
+        snprintf(e->status, sizeof(e->status), "The script stopped: %.280s", msg);
+    }
+    snprintf(app.ui.toast, sizeof(app.ui.toast), "Mod \"%.60s\" stopped working (see the Mods tab).", id);
+    app.ui.toast_frames = 240;
+}
+
+// (Re)start the usable script mods in load order, each in a fresh Lua state.
+static void start_scripts(void) {
+    scriptset_clear(app.scripts, app.core);
+    for (int i = 0; i < app.mods.order_count; i++) {
+        mod_entry_t* e = app.mods.entries[app.mods.order[i]];
+        if (!e->usable || e->mod.type != MOD_TYPE_SCRIPT) continue;
+        char err[256];
+        if (!scriptset_add(app.scripts, app.core, e->mod.id, e->mod.script_name, e->mod.script,
+                           e->mod.script_size, err, sizeof(err))) {
+            script_failed(e->mod.id, err);
+        }
+    }
+}
+
+static void service_scripts(void) {
+    char id[64], msg[256], line[256];
+    while (scriptset_take_failure(app.scripts, id, sizeof(id), msg, sizeof(msg))) script_failed(id, msg);
+    while (scriptset_take_log(app.scripts, line, sizeof(line))) fprintf(stderr, "mod %s\n", line);
+}
+
 // One emulated frame and everything that belongs to it: input (live or from a
-// replay; none while loading), cheat mods, the frame, autostart, replay bookkeeping.
+// replay; none while loading), script and cheat mods, the frame, autostart,
+// replay bookkeeping. Replays record the player's input; scripts re-run on playback.
 static void step_frame(void) {
     replay_input_t in;
     memset(&in, 0, sizeof(in));
     if (app.playing) replay_player_input(&app.player, &in);
     else if (!app.booting) input_collect(&in);
-    replay_input_apply(app.core, &in);
+    replay_input_t eff = in;
+    if (!app.booting) {
+        if (app.cheats_first) start_scripts();
+        scriptset_before_frame(app.scripts, app.core, eff.joy);
+    }
+    replay_input_apply(app.core, &eff);
     if (!app.booting) {
         modset_apply_cheats(&app.mods, app.core, app.cheats_first);
         app.cheats_first = false;
     }
     core_run_frame(app.core);
+    if (!app.booting) {
+        scriptset_after_frame(app.scripts, app.core);
+        service_scripts();
+    }
     if (app.booting) {
         autostart_frame(&app.boot, app.core);
         app.ui.loading_seconds = (float)((double)app.boot.frames / core_frame_rate(app.core));
@@ -1103,6 +1149,9 @@ static void frame_cb(void) {
     }
     app.prev_screen = app.ui.screen;
     poll_gamepads();
+    app.ui.script_text_count = scriptset_texts(app.scripts, &app.ui.script_texts);
+    app.ui.overlay_valid = video_screen_area(&app.ui.overlay_x, &app.ui.overlay_y,
+                                             &app.ui.overlay_px, &app.ui.overlay_py);
     ui_frame(&app.ui);
     handle_ui_actions();
 
@@ -1217,6 +1266,7 @@ static void cleanup_cb(void) {
     video_shutdown();
     image_free(&app.icon);
     gamepack_loaded_free(&app.gp);
+    scriptset_destroy(app.scripts, NULL);
     modset_free(&app.mods);
 }
 
@@ -1388,6 +1438,11 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         exit(1);
     }
     app.frame_period = 1.0 / core_frame_rate(app.core);
+    app.scripts = scriptset_create();
+    if (!app.scripts) {
+        fprintf(stderr, "breadbin-6502: out of memory\n");
+        exit(1);
+    }
     input_init(&app.settings.input);
     gamepad_init();
 

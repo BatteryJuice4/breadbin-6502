@@ -17,6 +17,9 @@ void video_set_palette(const uint32_t rgb[16]);
 // Record the emulator picture for this frame. fb may be NULL (nothing drawn).
 // dim darkens the picture (used behind the menu).
 void video_draw(const core_video_t* fb, bool dim);
+// Where the last video_draw put the 320x200 display window: its top-left corner
+// and the size of one C64 pixel, in framebuffer pixels. False if nothing was drawn.
+bool video_screen_area(float* x, float* y, float* px, float* py);
 
 // Run the frame's render pass: the picture, then overlay() (e.g. the UI), then present.
 void video_present(void (*overlay)(void));

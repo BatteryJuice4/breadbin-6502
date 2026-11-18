@@ -1,16 +1,16 @@
 # Making mods
 
-A mod changes a game without touching the player's ROM file. Breadbin-6502 0.3.0 and later
-support three kinds:
+A mod changes a game without touching the player's ROM file. There are four kinds:
 
-| Type | What it does |
-|---|---|
-| `patch` | Changes bytes of the game data in memory when the game loads |
-| `cheat` | Writes to the C64's RAM before every frame, or once |
-| `palette` | Adds a 16-colour palette to the Video tab |
+| Type | What it does | Since |
+|---|---|---|
+| `patch` | Changes bytes of the game data in memory when the game loads | 0.3.0 |
+| `cheat` | Writes to the C64's RAM before every frame, or once | 0.3.0 |
+| `palette` | Adds a 16-colour palette to the Video tab | 0.3.0 |
+| `script` | Runs a sandboxed Lua script with every frame | 0.5.0 |
 
-`script` mods (Lua) are planned. The launcher already recognises them and says it can't
-run them yet.
+Set `min_launcher_version = "0.5.0"` in script mods, so older launchers explain why
+they can't run them.
 
 ## Packages
 
@@ -18,7 +18,7 @@ A mod is a **`.c64mod`** file: an ordinary zip archive with `mod.toml` at its to
 and any data files it needs. Players install it from the **Mods** tab.
 
 A package may only contain data files: `.toml`, `.ips`, `.bps`, `.txt`, `.md`, `.png`
-(and `.lua` for later script mods). Anything else (`.exe`, `.dll`, `.so`, ...) and the
+and `.lua` (script mods' source, run in the sandbox below). Anything else (`.exe`, `.dll`, `.so`, ...) and the
 launcher refuses the whole package. Mods never run native code. Native features come
 only from trusted plugins compiled into a game's executable, which a mod can ask for in
 `plugins` (none exist yet, so such a mod can't be enabled).
@@ -138,6 +138,69 @@ brown, light red, dark grey, grey, light green, light blue, light grey). Once en
 the palette appears in the Video tab. Palettes only change what's shown; the
 emulation (and replays) never see them. A game pack can default to one with
 `palette = "mod:<mod id>"` in its `[video]` table.
+
+## Script mods
+
+```toml
+type   = "script"
+script = "main.lua"         # the Lua file in the package (default: main.lua)
+min_launcher_version = "0.5.0"
+```
+
+The script is Lua 5.4 source (at most 256 KB, one file; compiled chunks are refused).
+Its main chunk runs when the game starts, then the launcher calls these global
+functions if the script defines them:
+
+| Hook | When |
+|---|---|
+| `on_frame()` | before every frame; the joystick input for that frame can still be changed |
+| `on_after_frame()` | after every frame |
+| `on_write(addr, value)` | after a frame, once for each CPU write to a watched address, in order |
+
+The `bb` table is the script's view of the machine:
+
+| Function | |
+|---|---|
+| `bb.read(addr)`, `bb.read16(addr)` | read RAM (`read16`: little-endian word) |
+| `bb.write(addr, value)` | write a byte to RAM (0..255) |
+| `bb.frame()` | frames since the machine was switched on |
+| `bb.joystick(port)` | joystick bits for port 1 or 2 this frame (the player's, after earlier scripts) |
+| `bb.set_joystick(port, bits)` | replace them, only in `on_frame`: `bb.UP`, `bb.DOWN`, `bb.LEFT`, `bb.RIGHT`, `bb.FIRE` combined with `\|` |
+| `bb.watch_write(addr [, on])` | call `on_write` for CPU writes to `addr` (up to 64 addresses; `false` stops) |
+| `bb.text(x, y, text [, rgb])` | show text over the picture this frame; `x`, `y` in C64 pixels from the top-left of the 320x200 screen area (negative = into the border), `rgb` like `0xFFFF00`; up to 32 per frame |
+| `bb.log(...)`, `print(...)` | write a line to the launcher's log (stderr), prefixed with the mod id |
+| `bb.api` | 1 (the version of this API) |
+
+Example: show the score from RAM and auto-fire while the button is held.
+
+```lua
+function on_frame()
+  local j = bb.joystick(2)
+  if j & bb.FIRE ~= 0 and bb.frame() % 8 >= 4 then
+    bb.set_joystick(2, j & ~bb.FIRE)     -- release every few frames
+  end
+end
+
+function on_after_frame()
+  bb.text(0, -10, string.format("score %d", bb.read16(0x0340)), 0xFFFF00)
+end
+```
+
+**The sandbox.** Scripts get Lua's base, `string`, `table`, `math`, `utf8` and
+`coroutine` libraries, and nothing else: no `io`, `os`, `package`/`require`, `debug`,
+`dofile`/`loadfile` or `string.dump`; `load` only accepts source text. Each script has
+16 MB of memory and 5 million Lua instructions per hook call. A script that raises an
+error, runs too long or runs out of memory is stopped; the Mods tab shows why, until the
+game is loaded again. It never takes the launcher down.
+
+**Determinism.** Replays must play back identically, so a script only sees the emulated
+machine: no clock, no files. `math.random` starts from a fixed seed (also after
+`math.randomseed()` without arguments), and `pairs` visits string and number keys in
+the same order every run (not tables or functions used as keys: their order follows
+memory addresses, and so does `tostring` of a table). Scripts restart with a fresh state
+whenever the game is loaded or reset, a save state is loaded, or the enabled mods
+change: keep what matters in C64 RAM, or rebuild it from RAM in the main chunk. Text
+from `bb.text` is display only.
 
 ## Replays and mods
 
