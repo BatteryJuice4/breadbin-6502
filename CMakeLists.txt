@@ -113,6 +113,7 @@ add_library(bb_core STATIC
     src/mods/patch.c
     src/mods/modset.c
     src/replay/replay.c
+    src/state/savestate.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
     ${BB_GEN_DIR}/openroms_chargen.c
@@ -222,6 +223,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_replay PRIVATE bb_core)
     target_compile_options(test_replay PRIVATE ${BB_WARNINGS})
     add_test(NAME replay COMMAND test_replay WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    add_executable(test_state tests/test_state.c)
+    target_link_libraries(test_state PRIVATE bb_core)
+    target_compile_options(test_state PRIVATE ${BB_WARNINGS})
+    add_test(NAME state COMMAND test_state WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
     add_executable(test_media tests/test_media.c)
     target_link_libraries(test_media PRIVATE bb_core)
