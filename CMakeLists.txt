@@ -43,6 +43,12 @@ add_library(bb_external_toml STATIC external/tomlc17/tomlc17.c)
 target_include_directories(bb_external_toml SYSTEM PUBLIC external/tomlc17)
 set_target_properties(bb_external_toml PROPERTIES C_EXTENSIONS ON)
 
+# Lua 5.4 (MIT) for script mods: one unit (src/mods/lua_impl.c) so its config can
+# be set without editing external/lua; only the sandbox's libraries are compiled.
+add_library(bb_external_lua STATIC src/mods/lua_impl.c)
+target_include_directories(bb_external_lua SYSTEM PUBLIC external/lua)
+set_target_properties(bb_external_lua PROPERTIES C_EXTENSIONS ON)
+
 # stb_image (public domain / MIT), PNG decoding for game pack branding
 add_library(bb_external_stb INTERFACE)
 target_include_directories(bb_external_stb SYSTEM INTERFACE external/stb)
@@ -119,12 +125,13 @@ add_library(bb_core STATIC
     src/mods/modset.c
     src/replay/replay.c
     src/state/savestate.c
+    src/mods/script.c
     ${BB_GEN_DIR}/openroms_kernal.c
     ${BB_GEN_DIR}/openroms_basic.c
     ${BB_GEN_DIR}/openroms_chargen.c
 )
 target_include_directories(bb_core PUBLIC src)
-target_link_libraries(bb_core PRIVATE bb_external_chips bb_external_sokol bb_external_stb)
+target_link_libraries(bb_core PRIVATE bb_external_chips bb_external_sokol bb_external_stb bb_external_lua)
 target_link_libraries(bb_core PUBLIC bb_external_toml)
 target_compile_options(bb_core PRIVATE ${BB_WARNINGS})
 if(NOT MSVC)
@@ -247,6 +254,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_state PRIVATE bb_core)
     target_compile_options(test_state PRIVATE ${BB_WARNINGS})
     add_test(NAME state COMMAND test_state WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    add_executable(test_script tests/test_script.c)
+    target_link_libraries(test_script PRIVATE bb_core)
+    target_compile_options(test_script PRIVATE ${BB_WARNINGS})
+    add_test(NAME script COMMAND test_script)
 
     add_executable(test_media tests/test_media.c)
     target_link_libraries(test_media PRIVATE bb_core)

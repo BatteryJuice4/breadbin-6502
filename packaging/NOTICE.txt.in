@@ -17,6 +17,7 @@ floooh/sokol      zlib      window, graphics, audio
 Dear ImGui        MIT       menus
 tomlc17           MIT       settings files
 stb_image         MIT / public domain   PNG loading, inflate
+Lua 5.4           MIT       script mods
 nativefiledialog-extended   zlib   file dialogs (Linux, Windows, macOS)
 MEGA65 Open ROMs  LGPL-3.0-or-later   the built-in C64 system ROMs
                   (KERNAL, BASIC, character set). Source:

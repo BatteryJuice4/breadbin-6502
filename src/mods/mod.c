@@ -36,6 +36,7 @@ bool mod_id_valid(const char* id) {
 void mod_free(mod_t* m) {
     free(m->patches);
     for (int i = 0; i < m->file_count; i++) free(m->files[i].data);
+    free(m->script);
     memset(m, 0, sizeof(*m));
 }
 
@@ -183,6 +184,37 @@ static bool parse_patches(toml_datum_t top, mod_t* m, mod_read_fn read, void* us
     return true;
 }
 
+static bool parse_script(toml_datum_t top, mod_t* m, mod_read_fn read, void* user, char* err, size_t err_size) {
+    snprintf(m->script_name, sizeof(m->script_name), "main.lua");
+    if (!get_str(top, "script", m->script_name, sizeof(m->script_name), false, err, err_size)) return false;
+    const size_t n = strlen(m->script_name);
+    if (n < 5 || strcmp(m->script_name + n - 4, ".lua")) {
+        snprintf(err, err_size, "script: \"%s\" must be a .lua file", m->script_name);
+        return false;
+    }
+    if (!read) { snprintf(err, err_size, "script: no files can be read here"); return false; }
+    char ferr[160];
+    size_t size = 0;
+    uint8_t* data = read(user, m->script_name, &size, ferr, sizeof(ferr));
+    if (!data) { snprintf(err, err_size, "script: %s", ferr); return false; }
+    if (size > MOD_MAX_SCRIPT) {
+        free(data);
+        snprintf(err, err_size, "script: %s is larger than %d KB", m->script_name, MOD_MAX_SCRIPT / 1024);
+        return false;
+    }
+    m->script = malloc(size + 1);
+    if (!m->script) { free(data); snprintf(err, err_size, "out of memory"); return false; }
+    memcpy(m->script, data, size);
+    m->script[size] = 0;
+    m->script_size = size;
+    free(data);
+    if (memchr(m->script, 0, size) || (size > 0 && m->script[0] == 0x1B)) {
+        snprintf(err, err_size, "script: %s must be Lua source text (no compiled chunks)", m->script_name);
+        return false;
+    }
+    return true;
+}
+
 static bool parse_cheats(toml_datum_t top, mod_t* m, tu_warn_t* w, char* err, size_t err_size) {
     toml_datum_t arr = toml_get(top, "cheat");
     if (arr.type != TOML_ARRAY || arr.u.arr.size == 0) { snprintf(err, err_size, "a cheat mod needs [[cheat]] entries"); return false; }
@@ -265,7 +297,7 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
     char type[16] = "";
     static const char* const keys[] = { "id", "name", "version", "author", "description", "game",
         "min_launcher_version", "requires_sha1", "dependencies", "conflicts", "plugins", "type",
-        "patch", "patch_files", "cheat", "palette", NULL };
+        "patch", "patch_files", "cheat", "palette", "script", NULL };
     check_keys(top, keys, &w, "mod");
     if (!get_str(top, "id", out->id, sizeof(out->id), true, e, sizeof(e))) goto done;
     if (!mod_id_valid(out->id)) { snprintf(e, sizeof(e), "id \"%s\" may only use a-z 0-9 - _ .", out->id); goto done; }
@@ -316,7 +348,8 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
         out->type = MOD_TYPE_PALETTE;
         if (!parse_palette(top, out, &w, e, sizeof(e))) goto done;
     } else if (!strcmp(type, "script")) {
-        out->type = MOD_TYPE_SCRIPT;    // listed, but can't be enabled yet
+        out->type = MOD_TYPE_SCRIPT;
+        if (!parse_script(top, out, read, user, e, sizeof(e))) goto done;
     } else {
         snprintf(e, sizeof(e), "type \"%s\" must be patch, cheat, palette or script", type);
         goto done;

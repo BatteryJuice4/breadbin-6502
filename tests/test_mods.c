@@ -168,6 +168,19 @@ static bool parse(const char* toml, mod_t* m, char* err, size_t es, char* warns,
     return mod_parse(toml, strlen(toml), NULL, NULL, m, err, es, warns, ws);
 }
 
+static uint8_t* script_reader(void* user, const char* path, size_t* size, char* err, size_t err_size) {
+    (void)user;
+    const char* text = NULL;
+    size_t n = 0;
+    if (!strcmp(path, "main.lua")) { text = "function on_frame() end\n"; n = strlen(text); }
+    else if (!strcmp(path, "compiled.lua")) { text = "\x1bLua\x54"; n = 5; }
+    if (!text) { snprintf(err, err_size, "%s isn't there", path); return NULL; }
+    uint8_t* d = malloc(n);
+    memcpy(d, text, n);
+    *size = n;
+    return d;
+}
+
 #define HEAD "id = \"t-mod\"\nname = \"Test\"\nversion = \"1.0.0\"\ngame = \"demo\"\n"
 
 static void test_manifest(void) {
@@ -206,8 +219,18 @@ static void test_manifest(void) {
     CHECK(m.palette[15] == 0xF0F0F0 && m.palette[1] == 0x101010 && !strcmp(m.palette_name, "Grey"), "palette values");
     mod_free(&m);
 
-    CHECK(parse(HEAD "type = \"script\"\n", &m, err, sizeof(err), warns, sizeof(warns)), "script parses");
+    CHECK(mod_parse(HEAD "type = \"script\"\n", strlen(HEAD "type = \"script\"\n"), script_reader, NULL, &m,
+                    err, sizeof(err), warns, sizeof(warns)), "script: %s", err);
+    CHECK(!strcmp(m.script_name, "main.lua") && m.script && strstr(m.script, "on_frame"), "script source");
     mod_free(&m);
+    const char* other = HEAD "type = \"script\"\nscript = \"other.lua\"\n";
+    CHECK(!mod_parse(other, strlen(other), script_reader, NULL, &m, err, sizeof(err), warns, sizeof(warns)) &&
+          strstr(err, "other.lua"), "missing script accepted (%s)", err);
+    const char* bin = HEAD "type = \"script\"\nscript = \"compiled.lua\"\n";
+    CHECK(!mod_parse(bin, strlen(bin), script_reader, NULL, &m, err, sizeof(err), warns, sizeof(warns)) &&
+          strstr(err, "compiled"), "compiled chunk accepted (%s)", err);
+    const char* exe = HEAD "type = \"script\"\nscript = \"main.exe\"\n";
+    CHECK(!mod_parse(exe, strlen(exe), script_reader, NULL, &m, err, sizeof(err), warns, sizeof(warns)), "non-.lua script accepted");
 
     static const char* const bad[] = {
         "name = \"x\"\nversion = \"1\"\ngame = \"g\"\ntype = \"cheat\"\n",           // no id
@@ -400,7 +423,7 @@ static void test_modset(void) {
     add(&s, M("base", "type = \"patch\"\n[[patch]]\noffset = 0\nbytes = \"11 22\"\n"));
     add(&s, M("addon", "dependencies = [\"base>=1.0.0\"]\ntype = \"patch\"\n[[patch]]\noffset = 1\nbytes = \"33\"\n"));
     add(&s, M("rival", "conflicts = [\"base\"]\ntype = \"cheat\"\n[[cheat]]\naddress = 2\nvalue = 7\n"));
-    add(&s, M("other-game", "type = \"script\"\n"));
+    add(&s, M("other-game", "type = \"cheat\"\n[[cheat]]\naddress = 2\nvalue = 7\n"));
     add(&s, "id = \"wrong\"\nname = \"w\"\nversion = \"1.0.0\"\ngame = \"zork\"\ntype = \"cheat\"\n[[cheat]]\naddress = 2\nvalue = 7\n");
     add(&s, M("future", "min_launcher_version = \"9.0.0\"\ntype = \"cheat\"\n[[cheat]]\naddress = 2\nvalue = 7\n"));
     add(&s, M("dumped", "requires_sha1 = [\"4d24d5ed3d8b38235d9ae5965b675ffece0981cc\"]\ntype = \"cheat\"\n[[cheat]]\naddress = 3\nvalue = 8\n"));
@@ -419,7 +442,7 @@ static void test_modset(void) {
     const int addon = modset_find(&s, "addon"), base = modset_find(&s, "base");
     CHECK(s.entries[base]->usable, "base usable: %s", s.entries[base]->status);
     CHECK(!s.entries[addon]->usable && strstr(s.entries[addon]->status, "load after"), "addon order: %s", s.entries[addon]->status);
-    CHECK(strstr(s.entries[modset_find(&s, "other-game")]->status, "Script"), "script");
+    CHECK(s.entries[modset_find(&s, "other-game")]->usable, "plain cheat usable: %s", s.entries[modset_find(&s, "other-game")]->status);
     CHECK(strstr(s.entries[modset_find(&s, "wrong")]->status, "another game"), "wrong game");
     CHECK(strstr(s.entries[modset_find(&s, "future")]->status, "9.0.0"), "launcher version");
     CHECK(strstr(s.entries[modset_find(&s, "dumped")]->status, "loaded first"), "no game loaded: %s", s.entries[modset_find(&s, "dumped")]->status);

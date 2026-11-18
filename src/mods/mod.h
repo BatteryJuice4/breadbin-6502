@@ -10,7 +10,7 @@
                inline [[patch]] entries and/or IPS/BPS files
       cheat    RAM writes, every frame ("freeze") or once after loading
       palette  a 16-colour palette the player can pick in Video
-    "script" mods are recognised but can't be enabled yet.
+      script   a sandboxed Lua script run with every frame (mods/script.h)
 
     Parsing is pure: files come through a reader callback, so the same code
     serves zips, folders and tests. Anything invalid makes the mod unusable with
@@ -31,6 +31,7 @@ extern "C" {
 #define MOD_MAX_FILES 8         // IPS/BPS files per mod
 #define MOD_MAX_CHEATS 64
 #define MOD_MAX_CHEAT_BYTES 16
+#define MOD_MAX_SCRIPT (256 * 1024)     // bytes of Lua source
 
 typedef enum {
     MOD_TYPE_PATCH = 0,
@@ -98,6 +99,10 @@ typedef struct {
     // palette
     char palette_name[64];
     uint32_t palette[16];       // 0xRRGGBB
+    // script
+    char script_name[64];       // file in the mod ("main.lua" unless mod.toml says otherwise)
+    char* script;               // owned, NUL-terminated Lua source
+    size_t script_size;
 } mod_t;
 
 // Reads a file from the mod (path relative to the mod root). Returns a malloc'd

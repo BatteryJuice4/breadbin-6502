@@ -60,6 +60,12 @@ struct core {
     int num_watches;
     uint16_t watch_pc[CORE_MAX_WATCHES];
     uint32_t watch_hits[CORE_MAX_WATCHES];
+    // write watches
+    uint8_t wwatch[0x10000 / 8];
+    int wwatch_count;
+    int wevent_count;
+    bool wevent_overflow;
+    core_write_event_t wevents[CORE_MAX_WRITE_EVENTS];
     uint8_t file_buf[CORE_FILE_MAX];
     // What core_power_on() needs to rebuild the machine
     core_audio_fn audio_fn;
@@ -120,6 +126,8 @@ static void core_power_on(core_t* core) {
     core->load_rts = false;
     core->prev_sync = -1;
     memset(core->watch_hits, 0, sizeof(core->watch_hits));
+    core->wevent_count = 0;
+    core->wevent_overflow = false;
 }
 
 core_t* core_create(const core_desc_t* desc) {
@@ -236,12 +244,28 @@ void core_run_frame(core_t* core) {
     c64_joystick(sys, core->joy[0], core->joy[1]);
     // Exact cycle count per frame (c64_exec() takes microseconds and would round).
     uint64_t pins = sys->pins;
+    core->wevent_count = 0;
+    core->wevent_overflow = false;
+    const bool watch_writes = core->wwatch_count > 0;
     for (uint32_t i = 0; i < core->cycles_per_frame; i++) {
         pins = _c64_tick(sys, pins);
         if (pins & M6502_SYNC) {
             pins = core_on_fetch(core, pins);
         } else {
             core->prev_sync = -1;
+        }
+        // CPU write cycles are never stretched by RDY, so each write shows up once.
+        if (watch_writes && !(pins & M6502_RW)) {
+            const uint16_t addr = M6502_GET_ADDR(pins);
+            if (core->wwatch[addr >> 3] & (1u << (addr & 7))) {
+                if (core->wevent_count < CORE_MAX_WRITE_EVENTS) {
+                    core->wevents[core->wevent_count].addr = addr;
+                    core->wevents[core->wevent_count].value = M6502_GET_DATA(pins);
+                    core->wevent_count++;
+                } else {
+                    core->wevent_overflow = true;
+                }
+            }
         }
     }
     sys->pins = pins;
@@ -495,6 +519,30 @@ int core_add_watch(core_t* core, uint16_t pc) {
 
 uint32_t core_watch_hits(const core_t* core, int id) {
     return (id >= 0 && id < core->num_watches) ? core->watch_hits[id] : 0;
+}
+
+void core_watch_write(core_t* core, uint16_t addr, bool on) {
+    uint8_t* b = &core->wwatch[addr >> 3];
+    const uint8_t bit = (uint8_t)(1u << (addr & 7));
+    if (on && !(*b & bit)) { *b |= bit; core->wwatch_count++; }
+    if (!on && (*b & bit)) { *b &= (uint8_t)~bit; core->wwatch_count--; }
+}
+
+void core_clear_write_watches(core_t* core) {
+    memset(core->wwatch, 0, sizeof(core->wwatch));
+    core->wwatch_count = 0;
+    core->wevent_count = 0;
+    core->wevent_overflow = false;
+}
+
+int core_write_watch_count(const core_t* core) {
+    return core->wwatch_count;
+}
+
+const core_write_event_t* core_write_events(const core_t* core, int* count, bool* overflow) {
+    if (count) *count = core->wevent_count;
+    if (overflow) *overflow = core->wevent_overflow;
+    return core->wevents;
 }
 
 void core_clear_watches(core_t* core) {

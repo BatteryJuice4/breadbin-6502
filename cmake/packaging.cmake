@@ -96,6 +96,7 @@ install(FILES ${_bb_root}/external/sokol/LICENSE DESTINATION ${_bb_doc}/licenses
 install(FILES ${_bb_root}/external/imgui/LICENSE.txt DESTINATION ${_bb_doc}/licenses RENAME imgui.txt)
 install(FILES ${_bb_root}/external/tomlc17/LICENSE DESTINATION ${_bb_doc}/licenses RENAME tomlc17.txt)
 install(FILES ${_bb_root}/external/stb/LICENSE DESTINATION ${_bb_doc}/licenses RENAME stb.txt)
+install(FILES ${_bb_root}/external/lua/LICENSE DESTINATION ${_bb_doc}/licenses RENAME lua.txt)
 install(FILES ${_bb_root}/external/nfd/LICENSE DESTINATION ${_bb_doc}/licenses RENAME nativefiledialog-extended.txt)
 install(FILES ${_bb_root}/external/open-roms/LICENSE DESTINATION ${_bb_doc}/licenses RENAME open-roms.txt)
 install(FILES ${_bb_root}/external/open-roms/COPYING DESTINATION ${_bb_doc}/licenses RENAME open-roms-GPL-3.0.txt)

@@ -242,10 +242,6 @@ static bool own_check(const modset_t* s, mod_entry_t* e) {
             return false;
         }
     }
-    if (m->type == MOD_TYPE_SCRIPT) {
-        snprintf(st, ss, "Script mods aren't supported by this version of Breadbin-6502 yet.");
-        return false;
-    }
     if (m->plugin_count > 0) {
         snprintf(st, ss, "Needs the built-in plugin \"%s\", which this game doesn't include.", m->plugins[0]);
         return false;

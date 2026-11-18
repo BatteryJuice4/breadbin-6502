@@ -155,6 +155,22 @@ int core_add_watch(core_t* core, uint16_t pc);
 uint32_t core_watch_hits(const core_t* core, int id);
 void core_clear_watches(core_t* core);
 
+// ---- write watches (script mods) ---------------------------------------------
+// Record CPU writes to chosen addresses. Events are collected during a frame and
+// read after it (in order), so nothing runs in the middle of emulation. A frame
+// with more than CORE_MAX_WRITE_EVENTS watched writes keeps the first ones and
+// sets the overflow flag. Watches survive core_reset, like PC watches.
+#define CORE_MAX_WRITE_EVENTS 256
+typedef struct {
+    uint16_t addr;
+    uint8_t value;
+} core_write_event_t;
+void core_watch_write(core_t* core, uint16_t addr, bool on);
+void core_clear_write_watches(core_t* core);
+int core_write_watch_count(const core_t* core);
+// The last core_run_frame's events; count and overflow may be NULL.
+const core_write_event_t* core_write_events(const core_t* core, int* count, bool* overflow);
+
 // Fast 64-bit hash of the machine state that matters for replays: 64 KB RAM,
 // colour RAM and CPU registers. Identical runs give identical values.
 uint64_t core_fingerprint(core_t* core);

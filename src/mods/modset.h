@@ -5,6 +5,7 @@
       - patch mods change the game data when it's loaded
       - cheat mods write RAM before every frame ("freeze") or once after loading
       - palette mods add palettes to the Video menu
+      - script mods run Lua with every frame (mods/script.h; main.c drives them)
 
     Mods come from two places:
       installed  <config>/mods/<game id>/<mod id>.c64mod  (Mods menu: Install...)
