@@ -1,7 +1,7 @@
 # Making mods
 
-A mod changes a game without touching the player's ROM file. Breadbin-6502 0.3.0
-supports three kinds:
+A mod changes a game without touching the player's ROM file. Breadbin-6502 0.3.0 and later
+support three kinds:
 
 | Type | What it does |
 |---|---|

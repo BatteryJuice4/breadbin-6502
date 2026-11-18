@@ -87,7 +87,7 @@ Letters `A`-`Z`, digits `0`-`9`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`,
 to the joystick don't also type on the C64 keyboard, so a game that needs a typed key
 (for example `P` for pause) just works as long as that key isn't bound.
 
-Gamepad buttons go in the same lists (up to 4 entries per action), Xbox layout:
+Gamepad buttons (launcher 0.4.0+) go in the same lists (up to 4 entries per action), Xbox layout:
 `Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad_Y`, `Gamepad_LB`, `Gamepad_RB`,
 `Gamepad_LT`, `Gamepad_RT`, `Gamepad_Back`, `Gamepad_Start`, `Gamepad_Guide`,
 `Gamepad_LStick`, `Gamepad_RStick` (stick clicks), the d-pad `Gamepad_Up`/`Down`/`Left`/`Right`
