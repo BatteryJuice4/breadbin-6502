@@ -44,7 +44,10 @@ Repo-specific rules:
   device layer that rescans `/dev/input` about once a second), `gamepad_xinput.c`
   (Windows, XInput DLL loaded at run time; not compilable on the Linux dev machine, CI
   builds it), `gamepad_gc.m` (macOS GameController framework; Objective-C, only
-  syntax-checked here against a stub header, CI compiles it), none elsewhere. Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
+  syntax-checked here against a stub header, CI compiles it), none elsewhere. Buttons go
+  by position (Xbox layout, `GAMEPAD_A` = bottom face button). evdev pads with an odd
+  button order get an entry in `known_pads` (USB vendor:product, `evpad_identify`); only
+  add one checked on a real pad. Verified so far: DragonRise `0079:0011` (SNES-style). Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
   named `Gamepad_*`; `settings_add_default_gamepad` fills actions that list none.
 - CRT filter: `src/video/crt.c`, its own sokol_gfx pipeline with hand-written GLSL 410 /
   GLSL ES 300 / MSL (keep the three in step; MSL isn't compiled on the Linux dev machine).

@@ -183,7 +183,11 @@ devfs rule, e.g. in `/etc/devfs.rules` `[localrules=10]` + `add path 'input/even
 group operator` (and `devfs_system_ruleset="localrules"` in `/etc/rc.conf`, user in group
 `operator`); on Windows through XInput, so Xbox-compatible pads; on macOS through Apple's
 GameController framework (Xbox, PlayStation and MFi pads paired with the Mac). Every connected pad drives the same
-joystick.
+joystick. Button names follow the Xbox layout by position: A is the bottom face button,
+whatever its label (on a Super Nintendo-style pad, the one marked B). Some no-name pads
+number their buttons in an odd order; the ones we know are fixed up automatically (so far a
+DragonRise SNES-style pad, USB id `0079:0011`). For any other, rebind in the Input tab, and
+please report it.
 
 Command-line options: `[game file]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
 `--generic` (ignore built-in/bundled game packs), `--scale N`, `--pal` / `--ntsc` (video standard;

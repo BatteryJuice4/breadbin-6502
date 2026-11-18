@@ -107,6 +107,24 @@ static void test_evdev(void) {
     evpad_event(&p, EV_KEY, BTN_TRIGGER, 1);
     evpad_event(&p, EV_ABS, ABS_Y, 255);
     CHECK(read_buttons(&p, &g) == (BIT(GAMEPAD_A) | BIT(GAMEPAD_LS_DOWN)), "joystick %08x", (unsigned)g.buttons);
+    CHECK(!evpad_identify(&p, 0x1234, 0x5678), "unknown pad identified");
+
+    // Known pad: DragonRise 0079:0011 SNES-style, buttons 1-4 = X (top), A (right),
+    // B (bottom), Y (left); by position the bottom one is GAMEPAD_A.
+    caps_reset();
+    for (int c = BTN_TRIGGER; c <= BTN_BASE4; c++) key_caps[c] = true;
+    abs_axis(ABS_X, 0, 255, 127);
+    abs_axis(ABS_Y, 0, 255, 127);
+    CHECK(evpad_setup(&p, key_caps, abs_caps, absinfo) && evpad_identify(&p, 0x0079, 0x0011), "dragonrise pad");
+    static const struct { int code; gamepad_button_t button; } snes[] = {
+        { BTN_TRIGGER, GAMEPAD_Y }, { BTN_THUMB, GAMEPAD_B }, { BTN_THUMB2, GAMEPAD_A }, { BTN_TOP, GAMEPAD_X },
+        { BTN_TOP2, GAMEPAD_LB }, { BTN_PINKIE, GAMEPAD_RB }, { BTN_BASE3, GAMEPAD_BACK }, { BTN_BASE4, GAMEPAD_START },
+    };
+    for (size_t i = 0; i < sizeof(snes) / sizeof(snes[0]); i++) {
+        evpad_event(&p, EV_KEY, (uint16_t)snes[i].code, 1);
+        CHECK(read_buttons(&p, &g) == BIT(snes[i].button), "dragonrise button %zu -> %08x", i, (unsigned)g.buttons);
+        evpad_event(&p, EV_KEY, (uint16_t)snes[i].code, 0);
+    }
 
     // Not pads
     caps_reset();

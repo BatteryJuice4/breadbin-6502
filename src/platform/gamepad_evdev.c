@@ -46,6 +46,35 @@ static const button_map_t joystick_buttons[] = {
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
+// Pads whose buttons don't come in the generic order. Buttons go by position,
+// like the Linux gamepad spec: GAMEPAD_A is the bottom face button whatever its
+// label (on a Super Nintendo-style pad that's the one marked B).
+// DragonRise 0079:0011 SNES-style USB pads (X top, A right, B bottom, Y left):
+// buttons 1-4 are X, A, B, Y (checked on a real pad, Nov 2026).
+static const button_map_t dragonrise_snes_buttons[] = {
+    { BTN_TRIGGER, GAMEPAD_Y }, { BTN_THUMB, GAMEPAD_B }, { BTN_THUMB2, GAMEPAD_A }, { BTN_TOP, GAMEPAD_X },
+    { BTN_TOP2, GAMEPAD_LB }, { BTN_PINKIE, GAMEPAD_RB }, { BTN_BASE, GAMEPAD_LT }, { BTN_BASE2, GAMEPAD_RT },
+    { BTN_BASE3, GAMEPAD_BACK }, { BTN_BASE4, GAMEPAD_START },
+};
+
+struct evpad_known {
+    uint16_t vendor, product;
+    const button_map_t* map;
+    size_t count;
+};
+
+static const evpad_known_t known_pads[] = {
+    { 0x0079, 0x0011, dragonrise_snes_buttons, COUNT(dragonrise_snes_buttons) },
+};
+
+bool evpad_identify(evpad_t* p, uint16_t vendor, uint16_t product) {
+    p->known = NULL;
+    for (size_t i = 0; i < COUNT(known_pads); i++) {
+        if (known_pads[i].vendor == vendor && known_pads[i].product == product) p->known = &known_pads[i];
+    }
+    return p->known != NULL;
+}
+
 bool evpad_setup(evpad_t* p, const bool key_caps[KEY_CNT], const bool abs_caps[ABS_CNT],
                  const struct input_absinfo absinfo[ABS_CNT]) {
     memset(p, 0, sizeof(*p));
@@ -84,7 +113,11 @@ static float axis(const evpad_t* p, int a, bool one_sided) {
 void evpad_read(const evpad_t* p, gamepad_t* out) {
     uint32_t b = 0;
     const button_map_t* map = p->joystick_style ? joystick_buttons : gamepad_buttons;
-    const size_t n = p->joystick_style ? COUNT(joystick_buttons) : COUNT(gamepad_buttons);
+    size_t n = p->joystick_style ? COUNT(joystick_buttons) : COUNT(gamepad_buttons);
+    if (p->known) {
+        map = p->known->map;
+        n = p->known->count;
+    }
     for (size_t i = 0; i < n; i++) {
         if (p->key[map[i].code]) b |= GAMEPAD_BIT(map[i].button);
     }
@@ -199,6 +232,8 @@ static void try_open(gamepad_t* pads, const char* path, const struct stat* st) {
         skip(path, st);
         return;
     }
+    struct input_id id;
+    if (ioctl(fd, EVIOCGID, &id) == 0) evpad_identify(&d->pad, id.vendor, id.product);
     d->fd = fd;
     d->dropped = false;
     snprintf(d->path, sizeof(d->path), "%s", path);
