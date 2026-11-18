@@ -41,11 +41,26 @@ jobs:
         if: failure() && runner.os == 'Linux'
         run: |
           sudo apt-get install -y gdb >/dev/null
+          grep -o -m1 -w 'user_shstk' /proc/cpuinfo || echo "no user_shstk"
           for name in $(cut -d: -f2 build/Testing/Temporary/LastTestsFailed.log); do
             echo "::group::gdb test_$name"
-            (cd build && gdb -q -batch -ex run -ex bt -ex "info registers rip" ./test_$name)
+            (cd build && gdb -q -batch -ex run -ex bt -ex 'p $_siginfo.si_code' \
+              -ex 'p $_siginfo._sifields._sigfault.si_addr' -ex 'info registers' \
+              -ex 'x/12i $pc-24' ./test_$name) || true
             echo "::endgroup::"
+            echo "::group::test_$name with shadow stack off"
+            (cd build && GLIBC_TUNABLES=glibc.cpu.x86_shstk=off ./test_$name; echo "exit $?") || true
+            echo "::endgroup::"
+            mkdir -p failed-tests && cp build/test_$name failed-tests/
           done
+
+      - name: Upload failed test binaries
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-tests-linux
+          path: failed-tests/
+          if-no-files-found: ignore
 
   # FreeBSD in a VM (verified by hand on 15.1 too: build, all tests, evdev backend).
   freebsd:
