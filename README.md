@@ -32,6 +32,23 @@ ctest --test-dir build --output-on-failure
 ./build/breadbin-6502
 ```
 
+### Release packages
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBB_SOURCE_URL=https://…   # where your source is published
+cmake --build build --config Release
+(cd build && cpack -C Release)              # .zip on Windows and macOS (.app inside), .tar.gz on Linux
+packaging/linux/make-appimage.sh build      # Linux AppImage (needs appimagetool on PATH)
+```
+
+Packages contain the program, README, `NOTICE.txt` (license and where to get the
+source, as the AGPL requires) and the third-party licenses. They never contain ROMs.
+Game repos get packages named after their game (`BB_OUTPUT_NAME`, `BB_PACKAGE_VERSION`,
+the pack's title and icon). The Linux AppImage doesn't bundle system libraries, so build
+it on the oldest distribution you want to support. The macOS `.app` isn't signed:
+the first time, open it with right-click → Open. CI builds all packages for version
+tags (`package` job).
+
 ## Using it
 
 On first run, Breadbin-6502 shows the **Select ROM** screen. Pick a cartridge (`.crt`,

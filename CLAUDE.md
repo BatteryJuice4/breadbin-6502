@@ -33,6 +33,10 @@ Repo-specific rules:
 - CRT filter: `src/video/crt.c`, its own sokol_gfx pipeline with hand-written GLSL 410 /
   GLSL ES 300 / MSL (keep the three in step; MSL isn't compiled on the Linux dev machine).
   Display only, drawn in `video_present` before sokol_gl.
+- Packaging: `cmake/packaging.cmake` (install rules, CPack zip/tgz, macOS bundle + .icns,
+  Linux .desktop), `packaging/linux/make-appimage.sh`, launcher icon from
+  `tools/make_icon.py` (`assets/breadbin-6502.png`, original art). Packages must never
+  include ROMs; NOTICE.txt carries the AGPL source offer (`BB_SOURCE_URL`).
 - Save states: `core_save_state`/`core_load_state` (chips snapshot, ROM arrays zeroed and
   the 8 MB tape buffer left out: **a state must never contain ROM data**, `test_core`
   checks it), files in `src/state/` (`.bbstate`, header says what the state depends on,

@@ -1,0 +1,24 @@
+@BB_PACKAGE_TITLE@ (@BB_PACKAGE_NAME@ @BB_PACKAGE_VERSION@), built on Breadbin-6502 @PROJECT_VERSION@
+
+No game ROMs are included. You supply your own dump through the program's menu;
+it is only read, never copied or changed.
+
+License
+-------
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License, version 3 (LICENSE).
+
+@BB_SOURCE_TEXT@
+
+Third-party components (licenses in the "licenses" folder)
+------------------------------------------------------------
+floooh/chips      zlib      C64 emulation chips
+floooh/sokol      zlib      window, graphics, audio
+Dear ImGui        MIT       menus
+tomlc17           MIT       settings files
+stb_image         MIT / public domain   PNG loading, inflate
+nativefiledialog-extended   zlib   file dialogs (Linux, Windows, macOS)
+MEGA65 Open ROMs  LGPL-3.0-or-later   the built-in C64 system ROMs
+                  (KERNAL, BASIC, character set). Source:
+                  https://github.com/MEGA65/open-roms (commit ad178dbe4d48)
+                  You may replace them with your own ROM dumps (see README).

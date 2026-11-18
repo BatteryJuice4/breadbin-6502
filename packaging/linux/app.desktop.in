@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=@BB_PACKAGE_TITLE@
+Comment=Commodore 64 game (bring your own ROM)
+Exec=@BB_OUTPUT_NAME@ %f
+Icon=@BB_OUTPUT_NAME@
+Terminal=false
+Categories=Game;Emulator;
+Keywords=C64;Commodore;retro;

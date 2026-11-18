@@ -12,6 +12,8 @@ set(CMAKE_CXX_STANDARD 17)          # UI layer only
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Windows: static C/C++ runtime, so release zips need no Visual C++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
@@ -184,6 +186,9 @@ else()
     pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse-simple libpulse)
     target_link_libraries(breadbin-6502 PRIVATE PkgConfig::PULSE)
 endif()
+
+# ---- install rules + release packages (zip / tar.gz, AppImage script) -------
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/packaging.cmake)
 
 # ---- tests -----------------------------------------------------------------
 if(BB_BUILD_TESTS)
