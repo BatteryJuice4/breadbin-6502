@@ -35,6 +35,18 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      # A crash in CI only (e.g. a different compiler) is hard to reproduce: rerun
+      # each failed test under gdb and print where it stopped.
+      - name: Backtrace failed tests
+        if: failure() && runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y gdb >/dev/null
+          for name in $(cut -d: -f2 build/Testing/Temporary/LastTestsFailed.log); do
+            echo "::group::gdb test_$name"
+            (cd build && gdb -q -batch -ex run -ex bt -ex "info registers rip" ./test_$name)
+            echo "::endgroup::"
+          done
+
   # FreeBSD in a VM (verified by hand on 15.1 too: build, all tests, evdev backend).
   freebsd:
     name: freebsd-15.1

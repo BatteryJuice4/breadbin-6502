@@ -95,6 +95,11 @@ static bool get_list(toml_datum_t tab, const char* key, char* out, int width, in
     return true;
 }
 
+// get_list on a char[N][W] array: passes the whole array (not &arr[0][0], whose
+// object is only the first row, which _FORTIFY_SOURCE rightly refuses to write past).
+#define GET_LIST(tab, key, arr, count, err, err_size) \
+    get_list(tab, key, (char*)(arr), (int)sizeof((arr)[0]), (int)(sizeof(arr) / sizeof((arr)[0])), count, err, err_size)
+
 static void check_keys(toml_datum_t tab, const char* const* known, tu_warn_t* w, const char* sect) {
     for (int i = 0; i < tab.u.tab.size; i++) {
         const char* k = tab.u.tab.key[i];
@@ -165,7 +170,7 @@ static bool parse_patches(toml_datum_t top, mod_t* m, mod_read_fn read, void* us
     }
     char names[MOD_MAX_FILES][64];
     int nf = 0;
-    if (!get_list(top, "patch_files", &names[0][0], 64, MOD_MAX_FILES, &nf, err, err_size)) return false;
+    if (!GET_LIST(top, "patch_files", names, &nf, err, err_size)) return false;
     for (int i = 0; i < nf; i++) {
         const char* n = names[i];
         const size_t len = strlen(n);
@@ -372,14 +377,14 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
         snprintf(e, sizeof(e), "min_launcher_version \"%s\" isn't like 0.3.0", out->min_launcher_version);
         goto done;
     }
-    if (!get_list(top, "requires_sha1", &out->requires_sha1[0][0], 41, MOD_MAX_LIST, &out->requires_count, e, sizeof(e))) goto done;
+    if (!GET_LIST(top, "requires_sha1", out->requires_sha1, &out->requires_count, e, sizeof(e))) goto done;
     for (int i = 0; i < out->requires_count; i++) {
         if (!is_sha1(out->requires_sha1[i])) { snprintf(e, sizeof(e), "requires_sha1: entry %d isn't a SHA-1", i + 1); goto done; }
         for (char* c = out->requires_sha1[i]; *c; c++) *c = (char)tolower((unsigned char)*c);
     }
     char deps[MOD_MAX_LIST][MOD_ID_MAX + 32];
     int ndeps = 0;
-    if (!get_list(top, "dependencies", &deps[0][0], MOD_ID_MAX + 32, MOD_MAX_LIST, &ndeps, e, sizeof(e))) goto done;
+    if (!GET_LIST(top, "dependencies", deps, &ndeps, e, sizeof(e))) goto done;
     for (int i = 0; i < ndeps; i++) {
         // "other-mod" or "other-mod>=1.2.0"
         char* ge = strstr(deps[i], ">=");
@@ -395,8 +400,8 @@ bool mod_parse(const char* text, size_t len, mod_read_fn read, void* user, mod_t
         if (!mod_id_valid(d->id)) { snprintf(e, sizeof(e), "dependencies: \"%s\" isn't a mod id", d->id); goto done; }
         out->dep_count++;
     }
-    if (!get_list(top, "conflicts", &out->conflicts[0][0], MOD_ID_MAX, MOD_MAX_LIST, &out->conflict_count, e, sizeof(e))) goto done;
-    if (!get_list(top, "plugins", &out->plugins[0][0], MOD_ID_MAX, MOD_MAX_LIST, &out->plugin_count, e, sizeof(e))) goto done;
+    if (!GET_LIST(top, "conflicts", out->conflicts, &out->conflict_count, e, sizeof(e))) goto done;
+    if (!GET_LIST(top, "plugins", out->plugins, &out->plugin_count, e, sizeof(e))) goto done;
     if (!parse_plugin_cfg(top, out, &w, e, sizeof(e))) goto done;
     if (!get_str(top, "type", type, sizeof(type), true, e, sizeof(e))) goto done;
     if (!strcmp(type, "patch")) {
