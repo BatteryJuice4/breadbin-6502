@@ -234,6 +234,7 @@ bool gamepack_parse(const char* text, size_t len, gamepack_t* out, settings_t* d
             for (int a = 0; a < INPUT_ACTION_COUNT; a++) {
                 tu_get_keys(def, settings_action_key((input_action_t)a), d.input.keys[a], INPUT_MAX_BINDS, &w, "input.default");
             }
+            settings_add_default_gamepad(&d.input);    // packs that list only keys still work with a pad
             int menu[1] = { 0 };
             if (tu_get_keys(def, "menu", menu, 1, &w, "input.default")) {
                 if (menu[0]) d.input.menu_key = menu[0];

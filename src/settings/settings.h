@@ -48,7 +48,7 @@ typedef enum {
     INPUT_ACTION_COUNT,
 } input_action_t;
 
-#define INPUT_MAX_BINDS 2
+#define INPUT_MAX_BINDS 4   // keyboard keys and gamepad buttons (INPUT_GAMEPAD_BASE + button)
 
 typedef struct {
     int keys[INPUT_ACTION_COUNT][INPUT_MAX_BINDS];  // host keycodes, 0 = unbound
@@ -83,6 +83,10 @@ bool settings_load_file(settings_t* s, const char* path, bool* missing,
 bool settings_save_file(const settings_t* s, const char* path, char* err, size_t err_size);
 
 const char* settings_action_key(input_action_t a);   // TOML key: "up", "down", ...
+// Give every action that has no gamepad button the default ones (d-pad + left
+// stick, A/B for fire), in its free slots. For settings files from before gamepad
+// support and game packs that only list keys.
+void settings_add_default_gamepad(input_settings_t* in);
 
 #ifdef __cplusplus
 }

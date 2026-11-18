@@ -44,8 +44,33 @@ void settings_default(settings_t* s) {
     in->keys[INPUT_FIRE][1] = input_key_from_name("RCtrl");
     in->joystick_port = 2;
     in->menu_key = input_key_from_name("Escape");
+    settings_add_default_gamepad(in);
     in->quick_save_key = input_key_from_name("F9");     // the C64 has no F9/F10 keys,
     in->quick_load_key = input_key_from_name("F10");    // so games never need them
+}
+
+void settings_add_default_gamepad(input_settings_t* in) {
+    static const char* const pad[INPUT_ACTION_COUNT][2] = {
+        [INPUT_UP] = { "Gamepad_Up", "Gamepad_LStick_Up" },
+        [INPUT_DOWN] = { "Gamepad_Down", "Gamepad_LStick_Down" },
+        [INPUT_LEFT] = { "Gamepad_Left", "Gamepad_LStick_Left" },
+        [INPUT_RIGHT] = { "Gamepad_Right", "Gamepad_LStick_Right" },
+        [INPUT_FIRE] = { "Gamepad_A", "Gamepad_B" },
+    };
+    for (int a = 0; a < INPUT_ACTION_COUNT; a++) {
+        bool has_pad = false;
+        for (int b = 0; b < INPUT_MAX_BINDS; b++) has_pad |= INPUT_IS_GAMEPAD(in->keys[a][b]);
+        if (has_pad) continue;
+        for (int p = 0; p < 2; p++) {
+            const int code = input_key_from_name(pad[a][p]);
+            for (int b = 0; b < INPUT_MAX_BINDS; b++) {
+                if (in->keys[a][b] == 0) {
+                    in->keys[a][b] = code;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 // ---- parsing ---------------------------------------------------------------
@@ -112,6 +137,11 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         tu_get_keys(in, "menu", menu, 1, &w, "input");
         if (menu[0]) t.input.menu_key = menu[0];
         else if (toml_get(in, "menu").type != TOML_UNKNOWN) tu_warn(&w, "[input] menu: a menu key is required, keeping the old one");
+        // Files written since gamepad support say their lists are complete; older
+        // ones get the default gamepad buttons.
+        bool explicit_pad = false;
+        tu_get_bool(in, "gamepad_binds", &explicit_pad, &w, "input");
+        if (!explicit_pad) settings_add_default_gamepad(&t.input);
         tu_get_keys(in, "quick_save", &t.input.quick_save_key, 1, &w, "input");
         tu_get_keys(in, "quick_load", &t.input.quick_load_key, 1, &w, "input");
     }
@@ -212,6 +242,7 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "menu = ");
     put_string(&o, input_key_name(s->input.menu_key) ? input_key_name(s->input.menu_key) : "Escape");
     put(&o, "\n");
+    put(&o, "gamepad_binds = true   # the lists above include gamepad buttons (\"Gamepad_A\", ...)\n");
     put_keys(&o, "quick_save", &s->input.quick_save_key, 1);
     put_keys(&o, "quick_load", &s->input.quick_load_key, 1);
     put(&o, "\n\n[mods]\n# enabled mods, in load order\nenabled = [");

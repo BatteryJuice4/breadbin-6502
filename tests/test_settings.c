@@ -2,6 +2,7 @@
 #include "settings/settings.h"
 #include "video/palettes.h"
 #include "input/keynames.h"
+#include "platform/gamepad.h"
 #include "platform/paths.h"
 
 #include <stdio.h>
@@ -29,7 +30,13 @@ static void test_keynames(void) {
     CHECK(input_key_from_name("lctrl") == input_key_from_name("LCtrl"), "names not case-insensitive");
     CHECK(input_key_from_name("Ctrl") == input_key_from_name("LCtrl"), "alias Ctrl");
     CHECK(input_key_from_name("Return") == input_key_from_name("Enter"), "alias Return");
-    CHECK(input_key_from_name("Gamepad_A") == 0, "gamepad names aren't keys");
+    CHECK(input_key_from_name("Gamepad_A") == INPUT_GAMEPAD_BASE + GAMEPAD_A, "Gamepad_A");
+    CHECK(input_key_from_name("gamepad_lstick_up") == INPUT_GAMEPAD_BASE + GAMEPAD_LS_UP, "gamepad names case-insensitive");
+    CHECK(input_key_from_name("Gamepad_Nope") == 0 && input_key_from_name("Gamepad_") == 0, "unknown gamepad button");
+    for (int b = 0; b < GAMEPAD_BUTTON_COUNT; b++) {
+        const char* n = input_key_name(INPUT_GAMEPAD_BASE + b);
+        CHECK(n && input_key_from_name(n) == INPUT_GAMEPAD_BASE + b, "gamepad name round trip %d", b);
+    }
     CHECK(input_key_from_name(NULL) == 0 && input_key_from_name("") == 0, "empty names");
 }
 
@@ -97,7 +104,7 @@ static void test_partial_and_invalid(void) {
     CHECK(parse(&s,
         "[video]\nscale = 99\nfullscreen = \"yes\"\nfilter = \"blurry\"\n"
         "[audio]\nvolume = 2.5\nlatency_ms = 5\n"
-        "[input]\nfire = [\"Space\", \"Gamepad_A\", \"LCtrl\", \"X\"]\njoystick_port = 3\nup = 7\nmenu = \"NoSuchKey\"\n"
+        "[input]\nfire = [\"Space\", \"Gamepad_Nope\", \"LCtrl\", \"Gamepad_A\", \"X\", \"Y\"]\njoystick_port = 3\nup = 7\nmenu = \"NoSuchKey\"\n"
         "[unknown]\nfoo = 1\n"
         "[mods]\nenabled = [\"good\", \"Bad Id\", 3, \"also-good\"]\n"), "invalid values must not be a parse error: %s", err);
     CHECK(s.mods_enabled_count == 2 && !strcmp(s.mods_enabled[1], "also-good"), "bad mod ids not skipped");
@@ -106,10 +113,12 @@ static void test_partial_and_invalid(void) {
     CHECK(s.audio.volume == def.audio.volume && s.audio.latency_ms == def.audio.latency_ms, "bad audio accepted");
     CHECK(s.input.joystick_port == 2, "joystick_port 3 accepted");
     CHECK(s.input.keys[INPUT_FIRE][0] == input_key_from_name("Space") &&
-          s.input.keys[INPUT_FIRE][1] == input_key_from_name("LCtrl"), "fire keys: unknown not skipped / max not honoured");
+          s.input.keys[INPUT_FIRE][1] == input_key_from_name("LCtrl") &&
+          s.input.keys[INPUT_FIRE][2] == input_key_from_name("Gamepad_A") &&
+          s.input.keys[INPUT_FIRE][3] == input_key_from_name("X"), "fire keys: unknown not skipped / max not honoured");
     CHECK(s.input.keys[INPUT_UP][0] == def.input.keys[INPUT_UP][0], "non-string 'up' accepted");
     CHECK(s.input.menu_key == def.input.menu_key, "unknown menu key replaced the menu key");
-    CHECK(strstr(warns, "scale") && strstr(warns, "Gamepad_A") && strstr(warns, "\"X\" ignored") &&
+    CHECK(strstr(warns, "scale") && strstr(warns, "Gamepad_Nope") && strstr(warns, "\"Y\" ignored") &&
           strstr(warns, "menu") && strstr(warns, "[mods]"), "missing warnings:\n%s", warns);
     settings_default(&s);
     CHECK(parse(&s, "[video]\npalette = \"psychedelic\"\n") && !strcmp(s.video.palette, PALETTE_DEFAULT) &&
@@ -122,10 +131,23 @@ static void test_partial_and_invalid(void) {
     CHECK(!parse(&s, "[video\nscale = 2\n"), "syntax error accepted");
     CHECK(s.video.window_scale == 7 && err[0], "settings changed on syntax error");
 
-    // Empty fire list unbinds
+    // Empty fire list unbinds (in files that say their lists include gamepad buttons)
     settings_default(&s);
-    CHECK(parse(&s, "[input]\nfire = []\n") && s.input.keys[INPUT_FIRE][0] == 0 && s.input.keys[INPUT_FIRE][1] == 0,
-          "empty list should unbind");
+    CHECK(parse(&s, "[input]\ngamepad_binds = true\nfire = []\n") && s.input.keys[INPUT_FIRE][0] == 0 &&
+          s.input.keys[INPUT_FIRE][1] == 0 && s.input.keys[INPUT_FIRE][2] == 0, "empty list should unbind");
+    // Older files (no gamepad_binds): actions without gamepad buttons get the defaults
+    settings_default(&s);
+    CHECK(parse(&s, "[input]\nfire = [\"Space\"]\nup = [\"W\", \"Gamepad_Y\"]\n"), "parse: %s", err);
+    CHECK(s.input.keys[INPUT_FIRE][0] == input_key_from_name("Space") &&
+          s.input.keys[INPUT_FIRE][1] == input_key_from_name("Gamepad_A") &&
+          s.input.keys[INPUT_FIRE][2] == input_key_from_name("Gamepad_B"), "old file: default gamepad fire added");
+    CHECK(s.input.keys[INPUT_UP][1] == input_key_from_name("Gamepad_Y") && s.input.keys[INPUT_UP][2] == 0,
+          "an action that lists a gamepad button keeps exactly that");
+    // defaults: d-pad + left stick, A/B
+    settings_default(&s);
+    CHECK(s.input.keys[INPUT_LEFT][1] == input_key_from_name("Gamepad_Left") &&
+          s.input.keys[INPUT_LEFT][2] == input_key_from_name("Gamepad_LStick_Left") &&
+          s.input.keys[INPUT_FIRE][2] == input_key_from_name("Gamepad_A"), "default gamepad bindings");
 }
 
 static void test_files(void) {

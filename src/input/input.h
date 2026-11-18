@@ -1,6 +1,6 @@
 #pragma once
 /*
-    Host keyboard -> C64 joystick / keyboard matrix.
+    Host keyboard and gamepads -> C64 joystick / keyboard matrix.
 
     Events are queued as they arrive and applied to the core only at frame
     boundaries (input_apply), so the emulation sees input per frame: the
@@ -15,6 +15,8 @@
       Left Ctrl         -> CTRL              Left Alt -> C=
       cursor keys       -> C64 cursor keys
     The menu key and F11 are handled by the app before input sees them.
+    Gamepad buttons (INPUT_GAMEPAD_BASE codes) only drive joystick actions; all
+    connected pads act on the same joystick.
 */
 #include "core/core.h"
 #include "replay/replay.h"
@@ -33,6 +35,11 @@ void input_apply(core_t* core);     // call right before core_run_frame()
 // REPLAY_MAX_KEYS; the rest wait for the next frame) and both joystick ports.
 void input_collect(replay_input_t* out);
 void input_release_all(void);       // e.g. on focus loss or when the menu opens
+// Buttons currently held on all gamepads (gamepad_buttons_all()); call once per
+// display frame. Presses shorter than a frame still count for one frame. While
+// not playing (menu open) nothing is passed on, and buttons still held when play
+// resumes are ignored until released.
+void input_set_gamepad(uint32_t buttons, bool playing);
 
 #ifdef __cplusplus
 }

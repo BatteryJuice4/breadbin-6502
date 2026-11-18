@@ -1,9 +1,11 @@
 #include "input/keynames.h"
 
+#include "platform/gamepad.h"
 #include "sokol_app.h"  // keycode enum only (no implementation needed)
 
 #include <ctype.h>
 #include <stddef.h>
+#include <string.h>
 
 typedef struct {
     int code;
@@ -62,6 +64,18 @@ static const key_name_t key_aliases[] = {
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 const char* input_key_name(int keycode) {
+    if (INPUT_IS_GAMEPAD(keycode)) {
+        static char buf[GAMEPAD_BUTTON_COUNT][32];
+        const int b = keycode - INPUT_GAMEPAD_BASE;
+        const char* n = gamepad_button_name((gamepad_button_t)b);
+        if (!n) return NULL;
+        if (!buf[b][0]) {
+            const char prefix[] = "Gamepad_";
+            memcpy(buf[b], prefix, sizeof(prefix) - 1);
+            for (size_t i = 0; n[i] && i + sizeof(prefix) < sizeof(buf[b]); i++) buf[b][sizeof(prefix) - 1 + i] = n[i];
+        }
+        return buf[b];
+    }
     for (size_t i = 0; i < COUNT(key_names); i++) {
         if (key_names[i].code == keycode) return key_names[i].name;
     }
@@ -77,6 +91,10 @@ static bool name_eq(const char* a, const char* b) {
 
 int input_key_from_name(const char* name) {
     if (!name) return 0;
+    if (!strncmp(name, "Gamepad_", 8) || !strncmp(name, "gamepad_", 8)) {
+        const int b = gamepad_button_from_name(name + 8);
+        return b >= 0 ? INPUT_GAMEPAD_BASE + b : 0;
+    }
     for (size_t i = 0; i < COUNT(key_names); i++) {
         if (name_eq(key_names[i].name, name)) return key_names[i].code;
     }

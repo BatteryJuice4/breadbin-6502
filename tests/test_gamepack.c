@@ -54,13 +54,19 @@ static void test_full(void) {
     CHECK(!strcmp(p.palette, "pepto") && !strcmp(d.video.palette, "pepto") && p.extended_view_max_width == 0, "palette");
     // defaults layered onto settings
     CHECK(d.input.joystick_port == 1, "joystick_port default");
-    CHECK(d.input.keys[INPUT_UP][0] == input_key_from_name("Up") && d.input.keys[INPUT_UP][1] == 0, "up binding replaces both slots");
+    // a keys-only action gets the default gamepad buttons; one that names a gamepad button keeps just that
+    CHECK(d.input.keys[INPUT_UP][0] == input_key_from_name("Up") &&
+          d.input.keys[INPUT_UP][1] == input_key_from_name("Gamepad_Up") &&
+          d.input.keys[INPUT_UP][2] == input_key_from_name("Gamepad_LStick_Up") && d.input.keys[INPUT_UP][3] == 0,
+          "up binding replaces the keys, default gamepad added");
     CHECK(d.input.keys[INPUT_FIRE][0] == input_key_from_name("Space") &&
-          d.input.keys[INPUT_FIRE][1] == input_key_from_name("LCtrl"), "fire bindings");
+          d.input.keys[INPUT_FIRE][1] == input_key_from_name("LCtrl") &&
+          d.input.keys[INPUT_FIRE][2] == input_key_from_name("Gamepad_A") && d.input.keys[INPUT_FIRE][3] == 0,
+          "fire bindings");
     CHECK(d.input.menu_key == input_key_from_name("F12"), "menu key");
     CHECK(d.video.window_scale == 4 && d.video.crop_border && d.video.filter == VIDEO_FILTER_LINEAR, "video defaults");
     CHECK(d.video.integer_scaling, "untouched default kept");
-    CHECK(strstr(warns, "Gamepad_A") != NULL, "gamepad binding should warn: %s", warns);
+    CHECK(strstr(warns, "Gamepad_A") == NULL, "Gamepad_A is a valid binding now: %s", warns);
     CHECK(strstr(warns, "unknown key") == NULL, "no unknown-key warnings expected: %s", warns);
 }
 
@@ -88,7 +94,8 @@ static void test_required_and_invalid(void) {
     CHECK(p.media == GAMEPACK_MEDIA_CARTRIDGE && !p.ntsc && p.cart_type == GAMEPACK_CART_AUTO, "bad values not ignored");
     CHECK(p.known_sha1_count == 0 && p.bin_load_address == 0 && !p.min_launcher_version[0], "bad rom values not ignored");
     CHECK(d.input.joystick_port == 2 && d.video.window_scale == 3 && !d.video.crop_border, "bad defaults applied");
-    CHECK(d.input.keys[INPUT_UP][0] == 0, "unknown-only binding should clear the action");
+    CHECK(d.input.keys[INPUT_UP][0] == input_key_from_name("Gamepad_Up") && d.input.keys[INPUT_UP][2] == 0,
+          "unknown-only binding should clear the keys (the default gamepad buttons stay)");
     // menu = KP_8 is fine, but KP_8 is also a default joystick key: removed from the joystick
     CHECK(d.input.menu_key == input_key_from_name("KP_8"), "menu key from pack");
     for (int a = 0; a < INPUT_ACTION_COUNT; a++)

@@ -48,9 +48,10 @@ Press **Esc** during play to pause and open the menu:
   aspect correction, border crop, sharp or smooth filtering, colour palette
   (Colodore, Pepto, or one from a palette mod)
 - **Audio:** volume, mute, latency
-- **Input:** joystick port (1 or 2), key bindings for the joystick (two keys per
-  direction; click to rebind, right-click to clear), the menu key and the quick
-  save/load keys
+- **Input:** joystick port (1 or 2), bindings for the joystick (four keys or gamepad
+  buttons per direction; click to rebind, then press a key or a gamepad button;
+  right-click to clear), the menu key, the quick save/load keys, and the connected
+  gamepads
 - **States:** save states: a Quick slot (F9 saves, F10 loads, also during play) and five
   more slots, with when each was saved
 - **Mods:** install `.c64mod` packages, switch mods on and off, set their load order;
@@ -146,6 +147,13 @@ You can also pass `--sysroms <folder>`.
 | Esc | launcher menu |
 
 Keys bound to the joystick don't type on the C64 keyboard. Everything else does.
+
+**Gamepads** (Linux and Windows for now; macOS and FreeBSD later) work out of the box and
+can be plugged in at any time: d-pad or left stick to move, A or B to fire, Start to open
+the menu, which the d-pad, A (select), B (back) and LB/RB (switch tabs) control. On Linux,
+pads are read from `/dev/input` (your desktop normally gives the logged-in user access);
+on Windows through XInput, so Xbox-compatible pads. Every connected pad drives the same
+joystick.
 
 Command-line options: `[game file]`, `--sysroms DIR`, `--settings FILE`, `--gamepack DIR`,
 `--generic` (ignore built-in/bundled game packs), `--scale N`, `--pal` / `--ntsc` (video standard;

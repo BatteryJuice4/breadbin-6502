@@ -130,6 +130,9 @@ void ui_init(void);
 void ui_shutdown(void);
 // Returns true if the UI consumed the event (always while a screen is shown).
 bool ui_handle_event(const sapp_event* ev, ui_state_t* st);
+// Gamepad state for menu navigation and key capture; call before ui_frame().
+// Returns true if a button press was taken for rebinding.
+bool ui_gamepad(ui_state_t* st, uint32_t buttons);
 // Build this frame's UI (call every frame; draws nothing when screen == NONE).
 void ui_frame(ui_state_t* st);
 // Call outside the render pass, after ui_frame().

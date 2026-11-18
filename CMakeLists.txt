@@ -100,6 +100,9 @@ add_library(bb_core STATIC
     src/rom/sha1.c
     src/rom/rom_file.c
     src/platform/paths.c
+    src/platform/gamepad.c
+    src/platform/gamepad_evdev.c
+    src/platform/gamepad_xinput.c
     src/settings/settings.c
     src/settings/toml_util.c
     src/gamepack/gamepack.c
@@ -223,6 +226,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_replay PRIVATE bb_core)
     target_compile_options(test_replay PRIVATE ${BB_WARNINGS})
     add_test(NAME replay COMMAND test_replay WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+    add_executable(test_gamepad tests/test_gamepad.c src/input/input.c)
+    target_link_libraries(test_gamepad PRIVATE bb_core bb_external_sokol)
+    target_compile_options(test_gamepad PRIVATE ${BB_WARNINGS})
+    add_test(NAME gamepad COMMAND test_gamepad)
 
     add_executable(test_state tests/test_state.c)
     target_link_libraries(test_state PRIVATE bb_core)

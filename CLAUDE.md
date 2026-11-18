@@ -24,6 +24,12 @@ Repo-specific rules:
   fingerprint), so anything that affects emulation must happen there or at game
   load, never elsewhere, or replays stop matching. `--record FILE --headless --frames N`
   and `--replay FILE --verify` make and check replays without a window.
+- Gamepads: `src/platform/gamepad*.c` (own code, no library): `gamepad_evdev.c` (Linux;
+  pure `evpad_*` model tested in `tests/test_gamepad.c` with made-up devices, plus a
+  device layer that rescans `/dev/input` about once a second), `gamepad_xinput.c`
+  (Windows, XInput DLL loaded at run time; not compilable on the Linux dev machine, CI
+  builds it), none elsewhere. Buttons are bindable codes `INPUT_GAMEPAD_BASE + button`
+  named `Gamepad_*`; `settings_add_default_gamepad` fills actions that list none.
 - Save states: `core_save_state`/`core_load_state` (chips snapshot, ROM arrays zeroed and
   the 8 MB tape buffer left out: **a state must never contain ROM data**, `test_core`
   checks it), files in `src/state/` (`.bbstate`, header says what the state depends on,

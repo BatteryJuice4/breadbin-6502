@@ -87,7 +87,7 @@ bool tu_get_keys(toml_datum_t tab, const char* key, int* out, int max, tu_warn_t
         int code = input_key_from_name(names[i]);
         if (!code) {
             if (!strncmp(names[i], "Gamepad_", 8)) {
-                tu_warn(w, "[%s] %s: gamepads aren't supported yet, \"%s\" ignored", sect, key, names[i]);
+                tu_warn(w, "[%s] %s: unknown gamepad button \"%s\" ignored", sect, key, names[i]);
             } else {
                 tu_warn(w, "[%s] %s: unknown key \"%s\" ignored", sect, key, names[i]);
             }

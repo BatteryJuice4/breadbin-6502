@@ -22,6 +22,7 @@
 #include "replay/replay.h"
 #include "rom/sha1.h"
 #include "platform/filedialog.h"
+#include "platform/gamepad.h"
 #include "platform/paths.h"
 #include "rom/rom_file.h"
 #include "rom/sysroms.h"
@@ -1087,6 +1088,8 @@ static void step_frame(void) {
     }
 }
 
+static void poll_gamepads(void);
+
 static void frame_cb(void) {
     // a window manager may toggle fullscreen behind our back
     if (sapp_is_fullscreen() != app.settings.video.fullscreen) {
@@ -1099,6 +1102,7 @@ static void frame_cb(void) {
         refresh_state_slots();      // the game or mods may have changed since
     }
     app.prev_screen = app.ui.screen;
+    poll_gamepads();
     ui_frame(&app.ui);
     handle_ui_actions();
 
@@ -1133,6 +1137,37 @@ static void frame_cb(void) {
     }
 }
 
+static void open_menu(void) {
+    ui_state_t* u = &app.ui;
+    u->menu_return = UI_SCREEN_NONE;
+    u->screen = UI_SCREEN_MENU;
+    u->message[0] = 0;
+    input_release_all();
+}
+
+// Gamepads: hot-plug notices, Start/Guide for the menu, menu navigation, joystick.
+static void poll_gamepads(void) {
+    ui_state_t* u = &app.ui;
+    gamepad_poll();
+    char text[160];
+    if (gamepad_take_event(text, sizeof(text))) {
+        fprintf(stderr, "breadbin-6502: %s\n", text);
+        snprintf(u->toast, sizeof(u->toast), "%s", text);
+        u->toast_frames = 150;
+    }
+    static uint32_t prev;
+    const uint32_t buttons = gamepad_buttons_all();
+    const uint32_t pressed = buttons & ~prev;
+    prev = buttons;
+    const bool taken = ui_gamepad(u, buttons);
+    const uint32_t menu_buttons = GAMEPAD_BIT(GAMEPAD_START) | GAMEPAD_BIT(GAMEPAD_GUIDE);
+    if (!taken && (pressed & menu_buttons) && u->capture_action == UI_CAPTURE_NONE) {
+        if (u->screen == UI_SCREEN_NONE) open_menu();
+        else if (u->screen == UI_SCREEN_MENU) u->act_resume = true;
+    }
+    input_set_gamepad(buttons, u->screen == UI_SCREEN_NONE);
+}
+
 static void event_cb(const sapp_event* ev) {
     ui_state_t* u = &app.ui;
     const bool capturing = u->capture_action != UI_CAPTURE_NONE;
@@ -1157,10 +1192,7 @@ static void event_cb(const sapp_event* ev) {
         }
         if ((int)ev->key_code == app.settings.input.menu_key) {
             if (u->screen == UI_SCREEN_NONE) {
-                u->menu_return = UI_SCREEN_NONE;
-                u->screen = UI_SCREEN_MENU;
-                u->message[0] = 0;
-                input_release_all();
+                open_menu();
             } else if (u->screen == UI_SCREEN_MENU) {
                 u->act_resume = true;   // handled next frame, like the button
             }
@@ -1181,6 +1213,7 @@ static void cleanup_cb(void) {
     eject_media();
     core_destroy(app.core);
     audio_shutdown();
+    gamepad_shutdown();
     video_shutdown();
     image_free(&app.icon);
     gamepack_loaded_free(&app.gp);
@@ -1356,6 +1389,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     }
     app.frame_period = 1.0 / core_frame_rate(app.core);
     input_init(&app.settings.input);
+    gamepad_init();
 
     ui_state_t* u = &app.ui;
     u->settings = &app.settings;

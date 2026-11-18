@@ -83,10 +83,18 @@ from starting.
 
 Letters `A`-`Z`, digits `0`-`9`, `Space`, `Enter`, `Escape`, `Tab`, `Backspace`,
 `Up`/`Down`/`Left`/`Right`, `LCtrl`/`RCtrl`, `LShift`/`RShift`, `LAlt`/`RAlt`,
-`F1`-`F12`, keypad keys `KP_0`-`KP_9`, `KP_Enter`, and so on (case-insensitive). Gamepad
-buttons (`Gamepad_A`) are accepted but ignored until gamepad support arrives. Keys bound
+`F1`-`F12`, keypad keys `KP_0`-`KP_9`, `KP_Enter`, and so on (case-insensitive). Keys bound
 to the joystick don't also type on the C64 keyboard, so a game that needs a typed key
 (for example `P` for pause) just works as long as that key isn't bound.
+
+Gamepad buttons go in the same lists (up to 4 entries per action), Xbox layout:
+`Gamepad_A`, `Gamepad_B`, `Gamepad_X`, `Gamepad_Y`, `Gamepad_LB`, `Gamepad_RB`,
+`Gamepad_LT`, `Gamepad_RT`, `Gamepad_Back`, `Gamepad_Start`, `Gamepad_Guide`,
+`Gamepad_LStick`, `Gamepad_RStick` (stick clicks), the d-pad `Gamepad_Up`/`Down`/`Left`/`Right`
+and the left stick `Gamepad_LStick_Up`/`Down`/`Left`/`Right`. An action that lists no
+gamepad button gets the defaults (d-pad and left stick for the directions, A and B for
+fire), so a pack that only lists keys still plays with a pad. Start (or Guide) always
+opens the menu.
 
 ### ROM hashes
 

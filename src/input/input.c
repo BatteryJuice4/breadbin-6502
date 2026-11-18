@@ -26,6 +26,9 @@ static struct {
     bool release_all;
     bool c64_down[256];                      // C64 keys currently held via KEY_DOWN
     bool suppress_char;                      // drop the CHAR event of a bound key
+    uint8_t pad_mask[32];                    // joystick bits per gamepad button
+    uint32_t pad_held, pad_prev;             // gamepad buttons (all pads)
+    uint32_t pad_ignore;                     // held since before play resumed
 } is;
 
 void input_set_config(const input_settings_t* cfg) {
@@ -33,10 +36,12 @@ void input_set_config(const input_settings_t* cfg) {
     is.cfg = *cfg;
     if (is.cfg.joystick_port != 1) is.cfg.joystick_port = 2;
     memset(is.bound_mask, 0, sizeof(is.bound_mask));
+    memset(is.pad_mask, 0, sizeof(is.pad_mask));
     for (int a = 0; a < INPUT_ACTION_COUNT; a++) {
         for (int b = 0; b < INPUT_MAX_BINDS; b++) {
             const int k = cfg->keys[a][b];
             if (k > 0 && k < INPUT_MAX_KEYCODE) is.bound_mask[k] |= action_bits[a];
+            else if (INPUT_IS_GAMEPAD(k)) is.pad_mask[k - INPUT_GAMEPAD_BASE] |= action_bits[a];
         }
     }
 }
@@ -135,6 +140,29 @@ void input_release_all(void) {
     is.suppress_char = false;
     memset(is.host_held, 0, sizeof(is.host_held));
     is.tapped = 0;
+    is.pad_held = 0;
+}
+
+static uint8_t pad_bits(uint32_t buttons) {
+    uint8_t joy = 0;
+    for (int b = 0; b < 32; b++) {
+        if (buttons & (1u << b)) joy |= is.pad_mask[b];
+    }
+    return joy;
+}
+
+void input_set_gamepad(uint32_t buttons, bool playing) {
+    if (!playing) {
+        is.pad_ignore = buttons;
+        is.pad_prev = buttons;
+        is.pad_held = 0;
+        return;
+    }
+    is.pad_ignore &= buttons;   // released buttons count again
+    buttons &= ~is.pad_ignore;
+    is.tapped |= pad_bits(buttons & ~is.pad_prev);
+    is.pad_prev = buttons;
+    is.pad_held = buttons;
 }
 
 void input_collect(replay_input_t* out) {
@@ -167,6 +195,7 @@ void input_collect(replay_input_t* out) {
     for (int k = 1; k < INPUT_MAX_KEYCODE; k++) {
         if (is.host_held[k]) joy |= is.bound_mask[k];
     }
+    joy |= pad_bits(is.pad_held);
     out->joy[is.cfg.joystick_port == 2 ? 1 : 0] = joy;
 }
 

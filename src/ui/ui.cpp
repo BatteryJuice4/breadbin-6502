@@ -10,6 +10,7 @@
 
 extern "C" {
 #include "input/keynames.h"
+#include "platform/gamepad.h"
 #include "platform/paths.h"
 #include "video/palettes.h"
 }
@@ -34,6 +35,8 @@ struct Ui {
     float scale = 0.0f;
     ImGuiStyle base_style;
     bool frame_begun = false;
+    int tab_step = 0;           // LB/RB: switch menu tabs (-1/+1)
+    int tab_current = 0;
 
     // built-in file browser
     bool browser_open = false;
@@ -295,8 +298,11 @@ void binding_button(ui_state_t* st, int action, int slot, int keycode) {
     const bool capturing = st->capture_action == action && st->capture_slot == slot;
     const char* name = input_key_name(keycode);
     char label[64];
-    snprintf(label, sizeof(label), "%s##b%d_%d", capturing ? "press a key..." : (name ? name : "-"), action, slot);
-    if (ImGui::Button(label, ImVec2(ImGui::GetFontSize() * 8.0f, 0))) {
+    const bool pad = INPUT_IS_GAMEPAD(keycode) && name;
+    if (capturing) snprintf(label, sizeof(label), "press...##b%d_%d", action, slot);
+    else if (pad) snprintf(label, sizeof(label), "Pad %s##b%d_%d", name + 8, action, slot);     // without "Gamepad_"
+    else snprintf(label, sizeof(label), "%s##b%d_%d", name ? name : "-", action, slot);
+    if (ImGui::Button(label, ImVec2(ImGui::GetFontSize() * 6.4f, 0))) {
         st->capture_action = action;
         st->capture_slot = slot;
     }
@@ -549,7 +555,7 @@ void tab_input(ui_state_t* st) {
     dim_text("Most games use port 2. Click a key to rebind it, right-click to clear it.");
     ImGui::Spacing();
     static const char* names[INPUT_ACTION_COUNT] = { "Up", "Down", "Left", "Right", "Fire" };
-    if (ImGui::BeginTable("binds", 3, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("binds", 1 + INPUT_MAX_BINDS, ImGuiTableFlags_SizingFixedFit)) {
         for (int a = 0; a < INPUT_ACTION_COUNT; a++) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
@@ -577,7 +583,19 @@ void tab_input(ui_state_t* st) {
         ImGui::EndTable();
     }
     ImGui::Spacing();
-    dim_text("Other keys type on the C64 keyboard. Gamepad support is planned.");
+    dim_text("Other keys type on the C64 keyboard.");
+    ImGui::Spacing();
+    int pads = 0;
+    for (int i = 0; i < GAMEPAD_MAX; i++) {
+        const gamepad_t* p = gamepad_get(i);
+        if (p && p->connected) {
+            ImGui::Text("Gamepad %d: %s", i + 1, p->name[0] ? p->name : "connected");
+            pads++;
+        }
+    }
+    if (!strcmp(gamepad_backend(), "none")) dim_text("Gamepads aren't supported on this system yet.");
+    else if (!pads) dim_text("No gamepad connected. Plug one in at any time.");
+    dim_text("Gamepad: Start opens the menu, which the d-pad, A (select), B (back) and LB/RB (tabs) control.");
     ImGui::Spacing();
     if (ImGui::Button("Reset controls to defaults##input") && st->defaults) {
         in = st->defaults->input;
@@ -729,8 +747,14 @@ void menu_screen(ui_state_t* st) {
     ImGui::Separator();
     // tab contents scroll above the version footer
     const float footer_h = ImGui::GetTextLineHeightWithSpacing() * 1.6f;
+    static const int kTabs = 6;
+    const int select = g.tab_step ? (g.tab_current + g.tab_step + kTabs) % kTabs : -1;
+    g.tab_step = 0;
+    int index = 0;
     auto tab = [&](const char* name, void (*fn)(ui_state_t*)) {
-        if (ImGui::BeginTabItem(name)) {
+        const int i = index++;
+        if (ImGui::BeginTabItem(name, nullptr, i == select ? ImGuiTabItemFlags_SetSelected : 0)) {
+            g.tab_current = i;
             ImGui::BeginChild("##tabbody", ImVec2(0, -footer_h));
             fn(st);
             ImGui::EndChild();
@@ -818,7 +842,7 @@ void ui_init(void) {
     simgui_setup(&desc);
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.Fonts->AddFontDefaultVector();
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -828,6 +852,41 @@ void ui_init(void) {
     style.ItemSpacing = ImVec2(10, 8);
     style.FontSizeBase = 16.0f;
     g.base_style = style;
+}
+
+bool ui_gamepad(ui_state_t* st, uint32_t buttons) {
+    static uint32_t prev;
+    const uint32_t pressed = buttons & ~prev;
+    prev = buttons;
+    ImGuiIO& io = ImGui::GetIO();
+    if (buttons) io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    // Rebinding a joystick action: the next gamepad press is the new binding.
+    if (st->capture_action >= 0 && st->capture_action < INPUT_ACTION_COUNT && pressed) {
+        for (int b = 0; b < GAMEPAD_BUTTON_COUNT; b++) {
+            if (!(pressed & GAMEPAD_BIT(b)) || b == GAMEPAD_START || b == GAMEPAD_GUIDE) continue;
+            const int code = INPUT_GAMEPAD_BASE + b;
+            input_settings_t& in = st->settings->input;
+            for (auto& action : in.keys) for (int& k : action) if (k == code) k = 0;
+            in.keys[st->capture_action][st->capture_slot] = code;
+            st->act_input_changed = true;
+            st->capture_action = UI_CAPTURE_NONE;
+            prev = buttons;
+            return true;
+        }
+    }
+    if (st->screen == UI_SCREEN_NONE) return false;
+    auto key = [&](ImGuiKey k, uint32_t mask) { io.AddKeyEvent(k, (buttons & mask) != 0); };
+    key(ImGuiKey_GamepadDpadUp, GAMEPAD_BIT(GAMEPAD_UP) | GAMEPAD_BIT(GAMEPAD_LS_UP));
+    key(ImGuiKey_GamepadDpadDown, GAMEPAD_BIT(GAMEPAD_DOWN) | GAMEPAD_BIT(GAMEPAD_LS_DOWN));
+    key(ImGuiKey_GamepadDpadLeft, GAMEPAD_BIT(GAMEPAD_LEFT) | GAMEPAD_BIT(GAMEPAD_LS_LEFT));
+    key(ImGuiKey_GamepadDpadRight, GAMEPAD_BIT(GAMEPAD_RIGHT) | GAMEPAD_BIT(GAMEPAD_LS_RIGHT));
+    key(ImGuiKey_GamepadFaceDown, GAMEPAD_BIT(GAMEPAD_A));
+    key(ImGuiKey_GamepadFaceRight, GAMEPAD_BIT(GAMEPAD_B));
+    key(ImGuiKey_GamepadFaceLeft, GAMEPAD_BIT(GAMEPAD_X));
+    key(ImGuiKey_GamepadFaceUp, GAMEPAD_BIT(GAMEPAD_Y));
+    if (pressed & GAMEPAD_BIT(GAMEPAD_LB)) g.tab_step = -1;
+    if (pressed & GAMEPAD_BIT(GAMEPAD_RB)) g.tab_step = 1;
+    return false;
 }
 
 void ui_shutdown(void) {
