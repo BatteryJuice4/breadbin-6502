@@ -22,6 +22,7 @@
 
 #include "core/core.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -322,6 +323,103 @@ bool core_has_cart(const core_t* core) {
 static uint64_t fnv1a(uint64_t h, const uint8_t* p, size_t n) {
     for (size_t i = 0; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
     return h;
+}
+
+// ---- save states ----
+// Layout: header, then c64_t from chips' snapshot with the ROM arrays zeroed and
+// the tape buffer (8 MB, at the end of c1530_t) left out.
+typedef struct {
+    uint64_t layout;
+    uint64_t frame_count;
+    uint8_t joy[2];
+    uint8_t has_cart, load_rts;
+    int32_t prev_sync;
+    uint32_t tape_size;
+    uint32_t watch_hits[CORE_MAX_WATCHES];
+} core_state_hdr_t;
+
+#define STATE_TAPE_OFF (offsetof(c64_t, c1530) + offsetof(c1530_t, buf))
+#define STATE_TAPE_END (STATE_TAPE_OFF + sizeof(((c1530_t*)0)->buf))
+#define STATE_SYS_BYTES (sizeof(c64_t) - (STATE_TAPE_END - STATE_TAPE_OFF))
+
+static c64_t state_tmp;     // snapshots are big (the tape buffer): not on the stack
+
+size_t core_state_size(void) {
+    return sizeof(core_state_hdr_t) + STATE_SYS_BYTES;
+}
+
+uint64_t core_state_layout(void) {
+    // Changes whenever the snapshot format, struct sizes or field positions change.
+    const uint64_t parts[] = {
+        C64_SNAPSHOT_VERSION, sizeof(c64_t), sizeof(void*), sizeof(core_state_hdr_t),
+        offsetof(c64_t, cpu), offsetof(c64_t, cia_1), offsetof(c64_t, cia_2), offsetof(c64_t, vic),
+        offsetof(c64_t, sid), offsetof(c64_t, kbd), offsetof(c64_t, mem_cpu), offsetof(c64_t, mem_vic),
+        offsetof(c64_t, c1530), offsetof(c64_t, ram), offsetof(c64_t, fb), offsetof(c64_t, exp_roml),
+        sizeof(m6502_t), sizeof(m6526_t), sizeof(m6569_t), sizeof(m6581_t), sizeof(kbd_t), sizeof(mem_t),
+        2,  // bump when this file's state code changes meaning
+    };
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
+        for (int b = 0; b < 8; b++) h = (h ^ ((parts[i] >> (8 * b)) & 0xFF)) * 0x100000001B3ull;
+    }
+    return h;
+}
+
+bool core_save_state(core_t* core, uint8_t* buf, size_t size) {
+    if (!buf || size != core_state_size()) return false;
+    core_state_hdr_t h;
+    memset(&h, 0, sizeof(h));
+    h.layout = core_state_layout();
+    h.frame_count = core->frame_count;
+    h.joy[0] = core->joy[0];
+    h.joy[1] = core->joy[1];
+    h.has_cart = core->has_cart;
+    h.load_rts = core->load_rts;
+    h.prev_sync = core->prev_sync;
+    h.tape_size = core->sys.c1530.size;
+    memcpy(h.watch_hits, core->watch_hits, sizeof(h.watch_hits));
+    c64_save_snapshot(&core->sys, &state_tmp);
+    // never store ROM contents
+    memset(state_tmp.rom_char, 0, sizeof(state_tmp.rom_char));
+    memset(state_tmp.rom_basic, 0, sizeof(state_tmp.rom_basic));
+    memset(state_tmp.rom_kernal, 0, sizeof(state_tmp.rom_kernal));
+    memset(state_tmp.exp_roml, 0, sizeof(state_tmp.exp_roml));
+    memset(state_tmp.exp_romh, 0, sizeof(state_tmp.exp_romh));
+    memcpy(buf, &h, sizeof(h));
+    const uint8_t* src = (const uint8_t*)&state_tmp;
+    memcpy(buf + sizeof(h), src, STATE_TAPE_OFF);
+    memcpy(buf + sizeof(h) + STATE_TAPE_OFF, src + STATE_TAPE_END, sizeof(c64_t) - STATE_TAPE_END);
+    return true;
+}
+
+bool core_load_state(core_t* core, const uint8_t* buf, size_t size) {
+    if (!buf || size != core_state_size()) return false;
+    core_state_hdr_t h;
+    memcpy(&h, buf, sizeof(h));
+    if (h.layout != core_state_layout() || (bool)h.has_cart != core->has_cart ||
+        h.tape_size != core->sys.c1530.size) {
+        return false;
+    }
+    uint8_t* dst = (uint8_t*)&state_tmp;
+    memcpy(dst, buf + sizeof(h), STATE_TAPE_OFF);
+    memcpy(dst + STATE_TAPE_END, buf + sizeof(h) + STATE_TAPE_OFF, sizeof(c64_t) - STATE_TAPE_END);
+    // ROMs and the tape image come from this machine
+    const c64_t* sys = &core->sys;
+    memcpy(state_tmp.rom_char, sys->rom_char, sizeof(sys->rom_char));
+    memcpy(state_tmp.rom_basic, sys->rom_basic, sizeof(sys->rom_basic));
+    memcpy(state_tmp.rom_kernal, sys->rom_kernal, sizeof(sys->rom_kernal));
+    memcpy(state_tmp.exp_roml, sys->exp_roml, sizeof(sys->exp_roml));
+    memcpy(state_tmp.exp_romh, sys->exp_romh, sizeof(sys->exp_romh));
+    memcpy(state_tmp.c1530.buf, sys->c1530.buf, sys->c1530.size);
+    if (!c64_load_snapshot(&core->sys, C64_SNAPSHOT_VERSION, &state_tmp)) return false;
+    memset(core->sys.kbd.key_buffer, 0, sizeof(core->sys.kbd.key_buffer));
+    core->frame_count = h.frame_count;
+    core->joy[0] = h.joy[0];
+    core->joy[1] = h.joy[1];
+    core->load_rts = h.load_rts;
+    core->prev_sync = h.prev_sync;
+    memcpy(core->watch_hits, h.watch_hits, sizeof(core->watch_hits));
+    return true;
 }
 
 uint64_t core_fingerprint(core_t* core) {

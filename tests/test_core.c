@@ -4,6 +4,7 @@
 #include "rom/sysroms.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -336,6 +337,102 @@ static void test_reset_is_power_cycle(void) {
     core_destroy(fresh);
 }
 
+static bool contains(const uint8_t* hay, size_t n, const uint8_t* needle, size_t m) {
+    for (size_t i = 0; i + m <= n; i++) if (!memcmp(hay + i, needle, m)) return true;
+    return false;
+}
+
+// A 64-byte stretch of a ROM that is clearly code/data (many different byte values),
+// so finding it elsewhere can't be a coincidence.
+static const uint8_t* distinctive(const uint8_t* rom, size_t n) {
+    for (size_t off = 0; off + 64 <= n; off += 16) {
+        bool seen[256] = { false };
+        int distinct = 0;
+        for (int i = 0; i < 64; i++) distinct += !seen[rom[off + i]], seen[rom[off + i]] = true;
+        if (distinct >= 16) return rom + off;
+    }
+    return NULL;
+}
+
+// Scripted input for the save-state test: typing and joystick, frame by frame.
+static void state_input(core_t* c, int f) {
+    if (f == 210) core_key_down(c, 'R');
+    if (f == 213) core_key_up(c, 'R');
+    if (f == 330) core_key_down(c, 'U');    // held across the save at frame 332
+    if (f == 336) core_key_up(c, 'U');
+    core_set_joystick(c, 2, (f / 20) % 2 ? CORE_JOY_FIRE : 0);
+}
+
+// A state saved mid-run and loaded into another machine continues exactly like the
+// original; it holds no ROM bytes; mismatched machines refuse it.
+static void test_save_state(void) {
+    const size_t size = core_state_size();
+    CHECK(size > 64 * 1024 && size < 1024 * 1024, "state size %zu", size);
+    uint8_t* st = malloc(size);
+    core_t* a = make_core();
+    uint64_t fp[600] = { 0 };
+    for (int f = 0; f < 600; f++) {
+        state_input(a, f);
+        if (f == 332) CHECK(core_save_state(a, st, size), "save");
+        core_run_frame(a);
+        fp[f] = core_fingerprint(a);
+    }
+    // ROM contents never end up in a state
+    const uint8_t* rk = distinctive(roms.kernal, sizeof(roms.kernal));
+    const uint8_t* rb = distinctive(roms.basic, sizeof(roms.basic));
+    const uint8_t* rc = distinctive(roms.chargen, sizeof(roms.chargen));
+    CHECK(rk && rb && rc, "no distinctive ROM stretch found");
+    CHECK(!rk || !contains(st, size, rk, 64), "KERNAL bytes in the state");
+    CHECK(!rb || !contains(st, size, rb, 64), "BASIC bytes in the state");
+    CHECK(!rc || !contains(st, size, rc, 64), "CHARGEN bytes in the state");
+
+    core_t* b = make_core();
+    run(b, 17);     // somewhere else entirely
+    CHECK(core_load_state(b, st, size), "load");
+    CHECK(core_frame_count(b) == 332, "frame count %llu", (unsigned long long)core_frame_count(b));
+    bool same = true;
+    for (int f = 332; f < 600 && same; f++) {
+        state_input(b, f);
+        // 'U' was held when saving; the load released it, so press it like the original's input
+        if (f == 332) core_key_down(b, 'U');
+        core_run_frame(b);
+        same = core_fingerprint(b) == fp[f];
+        CHECK(same, "loaded state diverged at frame %d", f);
+    }
+    char ha[41], hb[41];
+    hash_state(a, ha);
+    hash_state(b, hb);
+    CHECK(!strcmp(ha, hb), "screen/RAM differ after 600 frames");
+
+    // refusals leave the machine alone
+    st[0] ^= 1;     // layout id
+    const uint64_t before = core_fingerprint(b);
+    CHECK(!core_load_state(b, st, size), "wrong layout accepted");
+    st[0] ^= 1;
+    CHECK(!core_load_state(b, st, size - 1), "wrong size accepted");
+    static cart_t cart;
+    memset(&cart, 0, sizeof(cart));
+    cart.mode = CART_MODE_8K;
+    memset(cart.roml, 0xEA, sizeof(cart.roml));
+    memset(cart.romh, 0xFF, sizeof(cart.romh));
+    core_t* withcart = make_core();
+    core_insert_cart(withcart, &cart);
+    CHECK(!core_load_state(withcart, st, size), "state without a cartridge loaded into a machine with one");
+    CHECK(core_fingerprint(b) == before, "refused load changed the machine");
+
+    // a cartridge machine's state doesn't contain the cartridge ROM either
+    run(withcart, 5);
+    for (unsigned i = 0; i < sizeof(cart.roml); i++) cart.roml[i] = (uint8_t)(i * 7 + 3);
+    core_insert_cart(withcart, &cart);
+    run(withcart, 5);
+    CHECK(core_save_state(withcart, st, size), "save with cart");
+    CHECK(!contains(st, size, cart.roml + 0x200, 64), "cartridge ROM bytes in the state");
+    core_destroy(withcart);
+    core_destroy(a);
+    core_destroy(b);
+    free(st);
+}
+
 int main(void) {
     sysroms_load_default(&roms);
     test_create_rejects_bad_input();
@@ -346,6 +443,7 @@ int main(void) {
     test_audio();
     test_determinism();
     test_reset_is_power_cycle();
+    test_save_state();
     if (failures == 0) printf("test_core: all passed\n");
     return failures ? 1 : 0;
 }

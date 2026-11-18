@@ -159,6 +159,22 @@ void core_clear_watches(core_t* core);
 // colour RAM and CPU registers. Identical runs give identical values.
 uint64_t core_fingerprint(core_t* core);
 
+// ---- Save states -------------------------------------------------------------
+// The whole machine (CPU, RAM, chips, keyboard, datasette position, the frame
+// shown) except ROM contents (system ROMs, cartridge) and the tape image: those
+// are never copied into a state and come from the machine it is loaded into, so
+// that machine must have the same ROMs, cartridge (incl. patches) and tape.
+// The data is this build's memory layout: core_state_layout() identifies it, and
+// states only load into a build with the same layout (checked by core_load_state).
+size_t core_state_size(void);
+uint64_t core_state_layout(void);
+// buf must hold core_state_size() bytes.
+bool core_save_state(core_t* core, uint8_t* buf, size_t size);
+// Returns false (machine unchanged) for a different layout, size, cartridge
+// presence or tape size. Keys held in the state are released (none are held
+// on the host at that moment).
+bool core_load_state(core_t* core, const uint8_t* buf, size_t size);
+
 // Raw 64 KB RAM access (not the CPU's banked view). For tests, cheats, fingerprints.
 uint8_t core_ram_read(const core_t* core, uint16_t addr);
 void core_ram_write(core_t* core, uint16_t addr, uint8_t value);
