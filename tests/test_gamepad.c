@@ -5,7 +5,7 @@
 #include "input/keynames.h"
 #include "platform/gamepad.h"
 #include "settings/settings.h"
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__)
 #include "platform/gamepad_evdev.h"
 #endif
 
@@ -26,7 +26,7 @@ static void test_axis_buttons(void) {
     CHECK(gamepad_button_from_name("lstick_right") == GAMEPAD_LS_RIGHT && gamepad_button_from_name("Nope") == -1, "names");
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__)
 static bool key_caps[KEY_CNT], abs_caps[ABS_CNT];
 static struct input_absinfo absinfo[ABS_CNT];
 
@@ -168,7 +168,7 @@ static void test_input_path(void) {
 
 int main(void) {
     test_axis_buttons();
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__)
     test_evdev();
 #endif
     test_input_path();

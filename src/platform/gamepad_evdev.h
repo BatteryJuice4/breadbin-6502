@@ -1,10 +1,15 @@
 #pragma once
-// Linux evdev gamepad model (internal; exposed for tests). Pure: no files or
+// evdev gamepad model (Linux, FreeBSD) (internal; exposed for tests). Pure: no files or
 // ioctls here, those live in gamepad_evdev.c's device layer.
-#ifdef __linux__
+#if defined(__linux__) || defined(__FreeBSD__)
+#define BB_HAVE_EVDEV 1
 #include "platform/gamepad.h"
 
+#ifdef __linux__
 #include <linux/input.h>
+#else
+#include <dev/evdev/input.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 

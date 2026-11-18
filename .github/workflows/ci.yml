@@ -35,6 +35,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+  # FreeBSD in a VM (verified by hand on 15.1 too: build, all tests, evdev backend).
+  freebsd:
+    name: freebsd-15.1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          usesh: true
+          prepare: |
+            pkg install -y cmake-core ninja pkgconf libX11 libXi libXcursor libglvnd pulseaudio
+          run: |
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build build
+            ctest --test-dir build --output-on-failure
+
   # Release packages: on version tags (and by hand). Linux builds on the oldest
   # supported Ubuntu so the AppImage runs on older distributions too.
   package:

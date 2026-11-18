@@ -104,8 +104,8 @@ bool gamepad_take_event(char* text, size_t size) {
     return true;
 }
 
-#if !defined(__linux__) && !defined(_WIN32)
-// No backend yet (macOS: GameController framework, FreeBSD: evdev; both planned).
+#if !defined(__linux__) && !defined(__FreeBSD__) && !defined(_WIN32)
+// No backend yet (macOS: GameController framework, planned).
 void gamepad_backend_init(gamepad_t* pads) { (void)pads; }
 void gamepad_backend_shutdown(void) {}
 void gamepad_backend_poll(gamepad_t* pads) { (void)pads; }

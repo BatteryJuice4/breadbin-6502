@@ -1,9 +1,12 @@
-// Linux gamepads through evdev. Pads appear as /dev/input/event* devices that
-// the logged-in user can read (udev's uaccess rule for joysticks). We rescan the
+// Gamepads through evdev (Linux, and FreeBSD, whose kernel has the same
+// interface). Pads appear as /dev/input/event* devices that the logged-in user
+// can read (Linux: udev's uaccess rule for joysticks; FreeBSD: a devfs rule). We rescan the
 // folder about once a second for new devices (hot-plug) and drop a device when
 // reading it fails. See gamepad.h.
+#if defined(__linux__) || defined(__FreeBSD__)
 #ifdef __linux__
 #define _POSIX_C_SOURCE 200809L     // O_CLOEXEC under strict C11
+#endif
 #include "platform/gamepad_backend.h"
 #include "platform/gamepad_evdev.h"
 

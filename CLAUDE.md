@@ -24,7 +24,8 @@ Repo-specific rules:
   fingerprint), so anything that affects emulation must happen there or at game
   load, never elsewhere, or replays stop matching. `--record FILE --headless --frames N`
   and `--replay FILE --verify` make and check replays without a window.
-- Gamepads: `src/platform/gamepad*.c` (own code, no library): `gamepad_evdev.c` (Linux;
+- Gamepads: `src/platform/gamepad*.c` (own code, no library): `gamepad_evdev.c` (Linux and
+  FreeBSD, `<dev/evdev/input.h>`;
   pure `evpad_*` model tested in `tests/test_gamepad.c` with made-up devices, plus a
   device layer that rescans `/dev/input` about once a second), `gamepad_xinput.c`
   (Windows, XInput DLL loaded at run time; not compilable on the Linux dev machine, CI
