@@ -300,12 +300,19 @@ void binding_button(ui_state_t* st, int action, int slot, int keycode) {
     char label[64];
     const bool pad = INPUT_IS_GAMEPAD(keycode) && name;
     if (capturing) snprintf(label, sizeof(label), "press...##b%d_%d", action, slot);
-    else if (pad) snprintf(label, sizeof(label), "Pad %s##b%d_%d", name + 8, action, slot);     // without "Gamepad_"
+    else if (pad) {
+        // Short labels so they fit the button: "Pad A", "LS Right" (left stick), "RS Up"
+        const char* n = name + 8;                                   // without "Gamepad_"
+        if (!strncmp(n, "LStick_", 7) || !strncmp(n, "RStick_", 7))
+            snprintf(label, sizeof(label), "%cS %s##b%d_%d", n[0], n + 7, action, slot);
+        else snprintf(label, sizeof(label), "Pad %s##b%d_%d", n, action, slot);
+    }
     else snprintf(label, sizeof(label), "%s##b%d_%d", name ? name : "-", action, slot);
     if (ImGui::Button(label, ImVec2(ImGui::GetFontSize() * 6.4f, 0))) {
         st->capture_action = action;
         st->capture_slot = slot;
     }
+    if (pad && !capturing && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", name);
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         input_settings_t& in = st->settings->input;
         if (action < INPUT_ACTION_COUNT) in.keys[action][slot] = 0;
