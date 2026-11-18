@@ -33,6 +33,10 @@ typedef struct {
     const uint8_t* rom_kernal;  size_t rom_kernal_size;   // 8 KB
     const uint8_t* rom_basic;   size_t rom_basic_size;    // 8 KB
     const uint8_t* rom_chargen; size_t rom_chargen_size;  // 4 KB
+    // 1541 drive ROM ($C000-$FFFF, 16 KB; optional). With it, a real 1541 is
+    // emulated as device 8 on the serial bus; without it there is no drive and
+    // disks are only served through the LOAD trap.
+    const uint8_t* rom_1541;    size_t rom_1541_size;
     // Audio output (optional; NULL = no audio, e.g. headless tests)
     int audio_sample_rate;      // Hz, e.g. 44100
     core_audio_fn audio_fn;
@@ -145,6 +149,31 @@ void core_tape_play(core_t* core);          // press PLAY (the motor follows the
 void core_tape_stop(core_t* core);          // release the buttons
 bool core_tape_motor_on(const core_t* core);
 bool core_tape_at_end(const core_t* core);  // inserted and all pulses played
+
+// ---- 1541 disk drive (needs rom_1541) ---------------------------------------------
+// The drive runs its own 6502, RAM, two VIAs and the DOS ROM on its 1 MHz clock,
+// talks to the C64 over the emulated serial bus (CIA-2), and reads/writes the disk
+// as GCR bits under a rotating head, so fastloaders and copy protections work.
+// A disk is a set of GCR tracks (see media/gcr.h), indexed by half-track
+// (0 = track 1, 2 = track 2, odd = between tracks). Track sizes are their recorded
+// length in bytes: every track passes under the head once per revolution (300 rpm).
+#define CORE_DISK_HALFTRACKS 84
+#define CORE_DISK_TRACK_MAX  8192
+typedef struct {
+    uint8_t* track[CORE_DISK_HALFTRACKS];   // GCR bytes; NULL = nothing recorded
+    uint16_t size[CORE_DISK_HALFTRACKS];    // bytes (1..CORE_DISK_TRACK_MAX)
+    bool write_protected;
+    bool dirty;                 // set by the core when the drive writes a track
+} core_disk_t;
+
+bool core_has_drive(const core_t* core);
+// The disk is used in place (the drive writes into its tracks) and must stay valid
+// until it is ejected or replaced; NULL ejects. A reset keeps it inserted.
+void core_insert_disk(core_t* core, core_disk_t* disk);
+// Drive status for the UI (LED on = the DOS is busy or reports an error).
+bool core_drive_led(const core_t* core);
+bool core_drive_motor(const core_t* core);
+int core_drive_halftrack(const core_t* core);
 
 // ---- PC watches ----------------------------------------------------------------
 // Count instruction fetches at an address (e.g. a KERNAL entry or a game's main

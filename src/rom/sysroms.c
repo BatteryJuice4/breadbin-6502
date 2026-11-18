@@ -44,6 +44,45 @@ static read_result_t read_exact(const char* dir, const char* name, uint8_t* dst,
     return (n == size && extra == EOF) ? RD_OK : RD_BAD_SIZE;
 }
 
+// 1541 ROMs verified with real dumps (SHA-1 of the whole 16 KB, $C000-$FFFF).
+static const struct { const char* sha1; const char* name; } known_1541[] = {
+    { "e15e0742a9b42492916050fbe95f1e22b0b01932", "1541 CBM DOS V2.6 (World dump)" },
+    { "f88ca9c3c9d1d383f4d348db54095c77f8597a11", "1541 CBM DOS V2.6 (Japan/USA dump)" },
+};
+
+const char* sysroms_1541_name(const char* sha1) {
+    for (size_t i = 0; i < sizeof(known_1541) / sizeof(known_1541[0]); i++) {
+        if (!strcmp(sha1, known_1541[i].sha1)) return known_1541[i].name;
+    }
+    return NULL;
+}
+
+// 1541.rom, or 1541-c000.rom + 1541-e000.rom. False (with a message) when the
+// files are present but unusable.
+static bool load_1541(sysroms_t* roms, const char* dir, char* err, size_t err_size) {
+    static uint8_t rom[0x4000];
+    const read_result_t r = read_exact(dir, "1541.rom", rom, sizeof(rom));
+    const read_result_t rc = read_exact(dir, "1541-c000.rom", rom, 0x2000);
+    const read_result_t re = read_exact(dir, "1541-e000.rom", rom + 0x2000, 0x2000);
+    if (r == RD_OK) {
+        read_exact(dir, "1541.rom", rom, sizeof(rom));      // the halves may have overwritten it
+    } else if (r == RD_BAD_SIZE || rc == RD_BAD_SIZE || re == RD_BAD_SIZE) {
+        if (err) snprintf(err, err_size, "1541 ROM in %s has the wrong size (1541.rom 16384, 1541-c000.rom/1541-e000.rom 8192 bytes)", dir);
+        return false;
+    } else if (rc != re) {
+        if (err) snprintf(err, err_size, "1541-c000.rom and 1541-e000.rom must be supplied together (found only %s in %s)",
+                          rc == RD_OK ? "1541-c000.rom" : "1541-e000.rom", dir);
+        return false;
+    } else if (rc == RD_MISSING) {
+        return true;    // no drive ROM: fine
+    }
+    memcpy(roms->drive1541, rom, sizeof(rom));
+    roms->has_1541 = true;
+    sha1_hex(roms->drive1541, sizeof(roms->drive1541), roms->drive1541_sha1);
+    roms->drive1541_name = sysroms_1541_name(roms->drive1541_sha1);
+    return true;
+}
+
 bool sysroms_load(sysroms_t* roms, const char* dir, char* err, size_t err_size) {
     sysroms_load_default(roms);
     if (err && err_size) err[0] = 0;
@@ -77,5 +116,6 @@ bool sysroms_load(sysroms_t* roms, const char* dir, char* err, size_t err_size) 
         roms->chargen_source = SYSROMS_SOURCE_USER;
         sha1_hex(roms->chargen, sizeof(roms->chargen), roms->chargen_sha1);
     }
+    if (!load_1541(roms, dir, ok ? err : NULL, err_size)) ok = false;
     return ok;
 }

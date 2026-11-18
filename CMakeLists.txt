@@ -105,6 +105,7 @@ add_library(bb_core STATIC
     src/core/cart.c
     src/media/media.c
     src/media/d64.c
+    src/media/gcr.c
     src/media/t64.c
     src/media/tap.c
     src/media/autostart.c
@@ -299,4 +300,16 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_media PRIVATE bb_core)
     target_compile_options(test_media PRIVATE ${BB_WARNINGS})
     add_test(NAME media COMMAND test_media)
+
+    add_executable(test_gcr tests/test_gcr.c)
+    target_link_libraries(test_gcr PRIVATE bb_core)
+    target_compile_options(test_gcr PRIVATE ${BB_WARNINGS})
+    add_test(NAME gcr COMMAND test_gcr)
+
+    # Needs a 1541 ROM (never committed): set BB_TEST_ROM_DIR, else it is skipped.
+    add_executable(test_drive tests/test_drive.c)
+    target_link_libraries(test_drive PRIVATE bb_core)
+    target_compile_options(test_drive PRIVATE ${BB_WARNINGS})
+    add_test(NAME drive COMMAND test_drive)
+    set_tests_properties(drive PROPERTIES SKIP_RETURN_CODE 77)
 endif()

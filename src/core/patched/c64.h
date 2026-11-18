@@ -367,6 +367,11 @@ typedef struct {
     bool io_mapped;             // true when D000..DFFF has IO area mapped in
     uint8_t cas_port;           // cassette port, shared with c1530_t if datasette is connected
     uint8_t iec_port;           // IEC serial port, shared with c1541_t if connected
+    // BREADBIN PATCH: serial bus outputs of CIA-2 port A (true = pulls the line low,
+    // through the 7406 inverters), and the 1541's clock accumulator (drive cycles
+    // run at 1 MHz against the C64's clock, in exact integer steps).
+    bool iec_out_atn, iec_out_clk, iec_out_data;
+    uint32_t c1541_acc;
     uint8_t cpu_port;           // last state of CPU port (for memory mapping)
     uint8_t kbd_joy1_mask;      // current joystick-1 state from keyboard-joystick emulation
     uint8_t kbd_joy2_mask;      // current joystick-2 state from keyboard-joystick emulation
@@ -587,7 +592,16 @@ static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
         c1530_tick(&sys->c1530);
     }
     if (sys->c1541.valid) {
-        c1541_tick(&sys->c1541);
+        // BREADBIN PATCH: the drive runs on its own 1 MHz clock and sees the C64's
+        // serial bus outputs from the previous cycle.
+        sys->c1541.c64_atn = sys->iec_out_atn;
+        sys->c1541.c64_clk = sys->iec_out_clk;
+        sys->c1541.c64_data = sys->iec_out_data;
+        sys->c1541_acc += C1541_FREQUENCY;
+        while (sys->c1541_acc >= sys->freq_hz) {
+            sys->c1541_acc -= sys->freq_hz;
+            c1541_tick(&sys->c1541);
+        }
     }
 
     // tick the CPU
@@ -695,7 +709,7 @@ static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
     /* tick CIA-2
         In Port A:
             bits 0..5: output (see cia2_out)
-            bits 6..7: serial bus input, not implemented
+            bits 6..7: serial bus input (BREADBIN PATCH: implemented)
         In Port B:
             RS232 / user functionality (not implemented)
 
@@ -706,7 +720,7 @@ static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
                 10: bank 1 4000..7FFF
                 11: bank 0 0000..3FFF
             bit 2: RS-232 TXD Outout (not implemented)
-            bit 3..5: serial bus output (not implemented)
+            bit 3..5: serial bus output (BREADBIN PATCH: implemented)
             bit 6..7: input (see cia2_in)
         Out Port B:
             RS232 / user functionality (not implemented)
@@ -714,9 +728,24 @@ static uint64_t _c64_tick(c64_t* sys, uint64_t pins) {
         CIA-2 IRQ pin connected to CPU NMI pin
     */
     {
-        M6526_SET_PAB(cia2_pins, 0xFF, 0xFF);
+        // BREADBIN PATCH: serial bus. PA6 = CLK in, PA7 = DATA in (line level, 1 =
+        // released); PA3/PA4/PA5 = ATN/CLK/DATA out (1 = pulled low). The lines are
+        // open collector: low when any device pulls them.
+        bool clk_low = sys->iec_out_clk, data_low = sys->iec_out_data;
+        if (sys->c1541.valid) {
+            clk_low = c1541_bus_clk(&sys->c1541);
+            data_low = c1541_bus_data(&sys->c1541);
+        }
+        const uint8_t iec_in = (uint8_t)(0x3F | (clk_low ? 0 : 0x40) | (data_low ? 0 : 0x80));
+        M6526_SET_PAB(cia2_pins, iec_in, 0xFF);
         cia2_pins = m6526_tick(&sys->cia_2, cia2_pins);
         sys->vic_bank_select = ((~M6526_GET_PA(cia2_pins))&3)<<14;
+        {
+            const uint8_t pa = M6526_GET_PA(cia2_pins);
+            sys->iec_out_atn = (pa & 0x08) != 0;
+            sys->iec_out_clk = (pa & 0x10) != 0;
+            sys->iec_out_data = (pa & 0x20) != 0;
+        }
         if (cia2_pins & M6502_IRQ) {
             pins |= M6502_NMI;
         }

@@ -17,7 +17,7 @@
 #include "chips/clk.h"
 #include "core/patched/c1530.h"  // chips c1530.h, larger tape buffer (see header)
 #include "chips/m6522.h"
-#include "systems/c1541.h"
+#include "core/patched/c1541.h" // chips c1541.h stub replaced by a working 1541 (see header)
 #include "core/patched/c64.h"   // chips c64.h + expansion port (see header)
 
 #include "core/core.h"
@@ -73,6 +73,9 @@ struct core {
     void* audio_user;
     int audio_sample_rate;
     uint8_t rom_kernal[0x2000], rom_basic[0x2000], rom_chargen[0x1000];
+    uint8_t rom_1541[0x4000];
+    bool has_1541;
+    core_disk_t* disk;          // caller's disk (must stay valid while inserted)
     const uint8_t* tape;        // caller's image (must stay valid while inserted)
     size_t tape_size;
 };
@@ -101,6 +104,7 @@ static void core_power_on(core_t* core) {
         .joystick_type = C64_JOYSTICKTYPE_NONE,
         .ntsc = core->ntsc,
         .c1530_enabled = true,
+        .c1541_enabled = core->has_1541,
         .audio = {
             .callback = { .func = core->audio_fn, .user_data = core->audio_user },
             .sample_rate = core->audio_sample_rate,
@@ -109,6 +113,10 @@ static void core_power_on(core_t* core) {
             .chars  = { .ptr = core->rom_chargen, .size = sizeof(core->rom_chargen) },
             .basic  = { .ptr = core->rom_basic,   .size = sizeof(core->rom_basic) },
             .kernal = { .ptr = core->rom_kernal,  .size = sizeof(core->rom_kernal) },
+            .c1541 = {
+                .c000_dfff = { .ptr = core->rom_1541, .size = 0x2000 },
+                .e000_ffff = { .ptr = core->rom_1541 + 0x2000, .size = 0x2000 },
+            },
         },
     });
     // Workaround for a chips keymap bug (@7ef8776): the shifted layer also maps
@@ -118,6 +126,10 @@ static void core_power_on(core_t* core) {
     if (core->has_cart) {
         c64_set_expansion(sys, exrom, game, roml, romh);
         c64_reset(sys);
+    }
+    if (core->has_1541 && core->disk) {
+        core_insert_disk(core, core->disk);
+        sys->c1541.disk_change = 0;     // it was in the drive at power-on
     }
     if (core->tape) {
         c1530_insert_tape(&sys->c1530, (chips_range_t){ .ptr = (void*)core->tape, .size = core->tape_size });
@@ -156,7 +168,8 @@ core_t* core_create(const core_desc_t* desc) {
     }
     if (!desc->rom_kernal || desc->rom_kernal_size != 0x2000 ||
         !desc->rom_basic || desc->rom_basic_size != 0x2000 ||
-        !desc->rom_chargen || desc->rom_chargen_size != 0x1000) {
+        !desc->rom_chargen || desc->rom_chargen_size != 0x1000 ||
+        (desc->rom_1541 && desc->rom_1541_size != 0x4000)) {
         return NULL;
     }
     core_t* core = core_alloc();
@@ -174,6 +187,10 @@ core_t* core_create(const core_desc_t* desc) {
     memcpy(core->rom_kernal, desc->rom_kernal, sizeof(core->rom_kernal));
     memcpy(core->rom_basic, desc->rom_basic, sizeof(core->rom_basic));
     memcpy(core->rom_chargen, desc->rom_chargen, sizeof(core->rom_chargen));
+    if (desc->rom_1541) {
+        memcpy(core->rom_1541, desc->rom_1541, sizeof(core->rom_1541));
+        core->has_1541 = true;
+    }
     core_power_on(core);
     return core;
 }
@@ -376,7 +393,7 @@ typedef struct {
     uint64_t layout;
     uint64_t frame_count;
     uint8_t joy[2];
-    uint8_t has_cart, load_rts;
+    uint8_t has_cart, load_rts, has_1541;
     int32_t prev_sync;
     uint32_t tape_size;
     uint32_t watch_hits[CORE_MAX_WATCHES];
@@ -400,7 +417,8 @@ uint64_t core_state_layout(void) {
         offsetof(c64_t, sid), offsetof(c64_t, kbd), offsetof(c64_t, mem_cpu), offsetof(c64_t, mem_vic),
         offsetof(c64_t, c1530), offsetof(c64_t, ram), offsetof(c64_t, fb), offsetof(c64_t, exp_roml),
         sizeof(m6502_t), sizeof(m6526_t), sizeof(m6569_t), sizeof(m6581_t), sizeof(kbd_t), sizeof(mem_t),
-        2,  // bump when this file's state code changes meaning
+        offsetof(c64_t, c1541), sizeof(c1541_t), sizeof(m6522_t),
+        3,  // bump when this file's state code changes meaning
     };
     uint64_t h = 0xCBF29CE484222325ull;
     for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
@@ -418,6 +436,7 @@ bool core_save_state(core_t* core, uint8_t* buf, size_t size) {
     h.joy[0] = core->joy[0];
     h.joy[1] = core->joy[1];
     h.has_cart = core->has_cart;
+    h.has_1541 = core->has_1541;
     h.load_rts = core->load_rts;
     h.prev_sync = core->prev_sync;
     h.tape_size = core->sys.c1530.size;
@@ -429,6 +448,7 @@ bool core_save_state(core_t* core, uint8_t* buf, size_t size) {
     memset(state_tmp.rom_kernal, 0, sizeof(state_tmp.rom_kernal));
     memset(state_tmp.exp_roml, 0, sizeof(state_tmp.exp_roml));
     memset(state_tmp.exp_romh, 0, sizeof(state_tmp.exp_romh));
+    memset(state_tmp.c1541.rom, 0, sizeof(state_tmp.c1541.rom));
     memcpy(buf, &h, sizeof(h));
     const uint8_t* src = (const uint8_t*)&state_tmp;
     memcpy(buf + sizeof(h), src, STATE_TAPE_OFF);
@@ -441,6 +461,7 @@ bool core_load_state(core_t* core, const uint8_t* buf, size_t size) {
     core_state_hdr_t h;
     memcpy(&h, buf, sizeof(h));
     if (h.layout != core_state_layout() || (bool)h.has_cart != core->has_cart ||
+        (bool)h.has_1541 != core->has_1541 ||
         h.tape_size != core->sys.c1530.size) {
         return false;
     }
@@ -454,6 +475,7 @@ bool core_load_state(core_t* core, const uint8_t* buf, size_t size) {
     memcpy(state_tmp.rom_kernal, sys->rom_kernal, sizeof(sys->rom_kernal));
     memcpy(state_tmp.exp_roml, sys->exp_roml, sizeof(sys->exp_roml));
     memcpy(state_tmp.exp_romh, sys->exp_romh, sizeof(sys->exp_romh));
+    memcpy(state_tmp.c1541.rom, sys->c1541.rom, sizeof(sys->c1541.rom));
     memcpy(state_tmp.c1530.buf, sys->c1530.buf, sys->c1530.size);
     if (!c64_load_snapshot(&core->sys, C64_SNAPSHOT_VERSION, &state_tmp)) return false;
     memset(core->sys.kbd.key_buffer, 0, sizeof(core->sys.kbd.key_buffer));
@@ -474,6 +496,12 @@ uint64_t core_fingerprint(core_t* core) {
     uint64_t h = 0xCBF29CE484222325ull;
     h = fnv1a(h, core->sys.ram, sizeof(core->sys.ram));
     h = fnv1a(h, core->sys.color_ram, sizeof(core->sys.color_ram));
+    if (core->has_1541) {
+        const uint16_t dpc = m6502_pc(&core->sys.c1541.cpu);
+        const uint8_t dregs[] = { (uint8_t)dpc, (uint8_t)(dpc >> 8), (uint8_t)core->sys.c1541.halftrack };
+        h = fnv1a(h, core->sys.c1541.ram, sizeof(core->sys.c1541.ram));
+        h = fnv1a(h, dregs, sizeof(dregs));
+    }
     return fnv1a(h, regs, sizeof(regs));
 }
 
@@ -567,4 +595,35 @@ const core_write_event_t* core_write_events(const core_t* core, int* count, bool
 
 void core_clear_watches(core_t* core) {
     core->num_watches = 0;
+}
+
+// ---- 1541 drive ------------------------------------------------------------------
+bool core_has_drive(const core_t* core) {
+    return core->has_1541;
+}
+
+void core_insert_disk(core_t* core, core_disk_t* disk) {
+    core->disk = disk;
+    if (!core->has_1541) return;
+    c1541_t* d = &core->sys.c1541;
+    if (disk) {
+        c1541_insert_disc(d, (c1541_disk_t){
+            .track = disk->track, .size = disk->size,
+            .write_protected = &disk->write_protected, .dirty = &disk->dirty,
+        });
+    } else {
+        c1541_remove_disc(d);
+    }
+}
+
+bool core_drive_led(const core_t* core) {
+    return core->has_1541 && core->sys.c1541.led;
+}
+
+bool core_drive_motor(const core_t* core) {
+    return core->has_1541 && core->sys.c1541.motor;
+}
+
+int core_drive_halftrack(const core_t* core) {
+    return core->has_1541 ? core->sys.c1541.halftrack : -1;
 }
