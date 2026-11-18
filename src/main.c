@@ -349,6 +349,9 @@ static void interrupt_replay(const char* what) {
     finish_playback();
 }
 
+static bool use_drive(void);
+static bool fast_load_on(void);
+
 static void start_recording(void) {
     replay_header_t h = { 0 };
     snprintf(h.launcher_version, sizeof(h.launcher_version), "%s", BB_VERSION);
@@ -361,6 +364,7 @@ static void start_recording(void) {
     sha1_hex(app.roms.basic, sizeof(app.roms.basic), h.sysrom_sha1[1]);
     sha1_hex(app.roms.chargen, sizeof(app.roms.chargen), h.sysrom_sha1[2]);
     snprintf(h.drive_sha1, sizeof(h.drive_sha1), "%s", core_has_drive(app.core) ? app.roms.drive1541_sha1 : "");
+    h.fast_load = use_drive() && fast_load_on();
     for (int i = 0; i < app.mods.order_count && h.mod_count < REPLAY_MAX_MODS; i++) {
         const mod_entry_t* e = app.mods.entries[app.mods.order[i]];
         if (e->usable) snprintf(h.mods[h.mod_count++], sizeof(h.mods[0]), "%s@%s", e->mod.id, e->sha1);
@@ -412,8 +416,6 @@ static void use_replay_mods(void) {
         replay_msg(true, msg);
     }
 }
-
-static bool use_drive(void);
 
 static void check_replay_environment(void) {
     const replay_header_t* h = &app.play.header;
@@ -558,9 +560,20 @@ static void flush_disk(void) {
     }
 }
 
+// Instant KERNAL LOADs alongside the drive: the player's setting, unless the game
+// pack needs every load to go through the real drive; a replay uses what it recorded.
+static bool fast_load_on(void) {
+    if (app.cli_replay) return app.play.header.fast_load;
+    if (app.gp.present && app.gp.pack.drive == GAMEPACK_DRIVE_1541) return false;
+    return app.settings.disk.fast_load;
+}
+
 // Put the opened disk (if any) into the drive, using its save copy if there is one.
 static void attach_disk(void) {
     app.media.use_drive = core_has_drive(app.core);
+    app.media.fast_load = app.media.use_drive && fast_load_on();
+    app.ui.drive_present = app.media.use_drive && media_disk(&app.media) != NULL;
+    app.ui.drive_pack_forced = app.gp.present && app.gp.pack.drive == GAMEPACK_DRIVE_1541;
     app.disk_save_path[0] = 0;
     core_disk_t* disk = media_disk(&app.media);
     if (!disk || !app.media.use_drive) {
@@ -591,6 +604,7 @@ static void eject_media(void) {
     app.booting = false;
     app.ui.loading = false;
     app.ui.can_swap = false;
+    app.ui.drive_present = false;
 }
 
 // Reset the machine and autostart the inserted disk/tape (warp until loaded).
@@ -1029,6 +1043,12 @@ static void handle_ui_actions(void) {
         input_set_config(&app.settings.input);
         app.settings_dirty = true;
     }
+    if (u->act_disk_changed) {
+        // Not in the middle of a replay recording: it recorded the old way of loading.
+        if (!app.recording && !app.playing) app.media.fast_load = app.media.use_drive && fast_load_on();
+        else set_message(false, "Fast loading changes when the game is loaded again.%s", "");
+        app.settings_dirty = true;
+    }
     if (u->act_resume) {
         u->screen = u->menu_return;
         u->capture_action = UI_CAPTURE_NONE;
@@ -1108,6 +1128,7 @@ static void handle_ui_actions(void) {
     }
     u->act_resume = u->act_reset = u->act_quit = u->act_select_rom = u->act_no_cart = false;
     u->act_video_changed = u->act_audio_changed = u->act_input_changed = u->act_load_path = false;
+    u->act_disk_changed = false;
     u->act_confirm_play = u->act_confirm_cancel = u->act_swap_media = false;
     u->act_mods_changed = u->act_mods_rescan = u->act_mod_install = u->act_mod_install_path = false;
     u->act_mod_uninstall = u->act_mods_restart = false;

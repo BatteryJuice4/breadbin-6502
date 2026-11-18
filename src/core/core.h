@@ -122,8 +122,10 @@ bool core_has_cart(const core_t* core);
 // load completes instantly (as LOAD would: secondary address 0 loads to X/Y, else
 // to the file's own address; end address in X/Y and $AE/$AF; carry clear) and the
 // real KERNAL code is skipped. Programs that talk to the drive directly
-// (fastloaders) bypass LOAD and aren't served. Deterministic: the result depends
-// only on the callback's data.
+// (fastloaders) bypass LOAD and aren't served. With the 1541 drive attached and a disk in
+// it, a LOAD from device 8 whose ILOAD vector ($0330) a program pointed into RAM (its
+// own loader hooked LOAD) isn't trapped either: that loader runs and talks to the drive. Deterministic: the
+// result depends only on emulated state and the callback's data.
 typedef enum {
     CORE_FILE_NOT_HANDLED = 0,  // not our device: let the real KERNAL LOAD run
     CORE_FILE_OK,               // *len bytes in buf: 2-byte load address + data

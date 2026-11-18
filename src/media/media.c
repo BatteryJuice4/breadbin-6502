@@ -71,23 +71,13 @@ static void hash_t64(const t64_t* t, char out[41]) {
 // DOS could read; unreadable ones are left zero. 40 tracks if any are recorded
 // past track 35.
 static bool g64_sectors(media_image_t* img, char* err, size_t err_size) {
-    const core_disk_t* disk = &img->gcr.disk;
-    int tracks = 35;
-    for (int t = 36; t <= 40; t++) {
-        if (disk->track[(t - 1) * 2]) tracks = 40;
-    }
-    size_t sectors = 0;
-    for (int t = 1; t <= tracks; t++) sectors += (size_t)gcr_sectors_per_track(t);
-    img->g64_sectors = calloc(sectors, 256);
+    size_t size = 0;
+    img->g64_sectors = gcr_to_d64(&img->gcr.disk, &size);
     if (!img->g64_sectors) {
         if (err) snprintf(err, err_size, "out of memory");
         return false;
     }
-    uint8_t* p = img->g64_sectors;
-    for (int t = 1; t <= tracks; t++) {
-        for (int s = 0; s < gcr_sectors_per_track(t); s++, p += 256) gcr_read_sector(disk, t, s, p);
-    }
-    return d64_open(img->g64_sectors, sectors * 256, &img->d64, err, err_size);
+    return d64_open(img->g64_sectors, size, &img->d64, err, err_size);
 }
 
 bool media_open(media_image_t* img, media_format_t fmt, uint8_t* data, size_t size, char* err, size_t err_size) {
@@ -176,8 +166,24 @@ core_file_result_t media_serve(void* user_data, uint8_t device, const uint8_t* n
     switch (img->fmt) {
         case MEDIA_FMT_D64:
         case MEDIA_FMT_G64:
-            // In the real drive, the disk is read by the drive itself.
-            if (device != 8 || img->use_drive) return CORE_FILE_NOT_HANDLED;
+            if (device != 8) return CORE_FILE_NOT_HANDLED;
+            if (img->use_drive) {
+                // In the real drive: let the drive read it, unless fast loading is on.
+                // Then the file comes from the disk as it is in the drive now (files
+                // the game saved included).
+                if (!img->fast_load) return CORE_FILE_NOT_HANDLED;
+                size_t size = 0;
+                uint8_t* sectors = gcr_to_d64(&img->gcr.disk, &size);
+                d64_t now;
+                bool ok = false;
+                if (sectors && d64_open(sectors, size, &now, NULL, 0)) {
+                    ok = d64_load(&now, name, name_len, buf, buf_size, len);
+                }
+                free(sectors);
+                // Anything it can't serve (a protected sector, a missing file) goes to
+                // the real drive, which reports errors as a 1541 would.
+                return ok ? CORE_FILE_OK : CORE_FILE_NOT_HANDLED;
+            }
             return d64_load(&img->d64, name, name_len, buf, buf_size, len) ? CORE_FILE_OK : CORE_FILE_NOT_FOUND;
         case MEDIA_FMT_PRG:
             // A single program: every name loads it (except the directory).

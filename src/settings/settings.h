@@ -42,6 +42,10 @@ typedef struct {
     int latency_ms;             // device buffer size, 20..250
 } audio_settings_t;
 
+typedef struct {
+    bool fast_load;             // with the 1541: plain KERNAL LOADs answered instantly
+} disk_settings_t;
+
 typedef enum {
     INPUT_UP = 0,
     INPUT_DOWN,
@@ -65,6 +69,7 @@ typedef struct {
     video_settings_t video;
     audio_settings_t audio;
     input_settings_t input;
+    disk_settings_t disk;
     int mods_enabled_count;                         // enabled mods, in load order
     char mods_enabled[SETTINGS_MAX_MODS][SETTINGS_MOD_ID_MAX];
 } settings_t;

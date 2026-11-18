@@ -139,15 +139,19 @@ picture or sound until loading is over.
   installed a 1541 ROM (their own dump, never bundled: `1541.rom`, or `1541-c000.rom` +
   `1541-e000.rom`, in the system ROM folder). The drive runs its real DOS and reads the
   disk bit by bit, so fast loaders, drive code and copy protection work, and games can
-  save to the disk. Loading takes as long as on a real 1541 (sped up as much as the
-  computer allows).
+  save to the disk. Plain KERNAL LOADs are still answered instantly ("Fast loading" in
+  the ROM tab, on by default), from the disk as it is in the drive, so files the game
+  saved load too; a LOAD that a game's own loader hooked (its `$0330` vector points into
+  RAM), or a file the instant path can't read, goes to the real drive. With fast loading
+  off, every load takes as long as on a real 1541 (sped up as much as the computer
+  allows).
 - Without a 1541 ROM, **disks**, **`.prg`** programs and **`.t64`** archives are served
   instantly: when the game calls the KERNAL's LOAD routine, the launcher hands over the
   file directly (a `.g64` through the sectors decoded from it). Games with their own fast
   loader don't work this way. `.prg` and `.t64` always load this way.
 - `drive` in `[load]` chooses: `"auto"` uses the 1541 when its ROM is installed, `"1541"`
-  means the game needs the real drive (the launcher asks the player for the ROM instead of
-  starting), `"none"` always uses the instant LOAD.
+  means the game needs the real drive for every load (the launcher asks the player for the
+  ROM instead of starting, and fast loading is off), `"none"` always uses the instant LOAD.
 - When a game **writes to its disk** in the 1541 (high scores, saved games), the written
   disk is kept as a save copy in the player's settings folder
   (`disks/<game id>/<disk SHA-1>.g64`) and used instead of the original next time. The

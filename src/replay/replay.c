@@ -111,6 +111,7 @@ static char* header_toml(const replay_header_t* h) {
     }
     sb_str(&b, "]\n");
     sb_kv(&b, "drive_rom", h->drive_sha1);
+    sb_str(&b, h->fast_load ? "fast_load = true\n" : "fast_load = false\n");
     sb_str(&b, "mods = [");
     for (int i = 0; i < h->mod_count; i++) {
         if (i) sb_str(&b, ", ");
@@ -149,6 +150,8 @@ static bool parse_header(const char* text, size_t len, replay_header_t* h, char*
         }
     }
     get_s(t, "drive_rom", h->drive_sha1, sizeof(h->drive_sha1));
+    toml_datum_t fl = toml_get(t, "fast_load");
+    h->fast_load = fl.type == TOML_BOOLEAN && fl.u.boolean;
     a = toml_get(t, "mods");
     if (a.type == TOML_ARRAY) {
         for (int i = 0; i < a.u.arr.size && h->mod_count < REPLAY_MAX_MODS; i++) {

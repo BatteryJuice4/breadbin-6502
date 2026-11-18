@@ -214,7 +214,13 @@ static bool core_trap_load(core_t* core) {
     if (mem_readptr(&sys->mem_cpu, CORE_KERNAL_LOAD) != &sys->rom_kernal[CORE_KERNAL_LOAD - 0xE000]) {
         return false;
     }
+    // With a real drive attached, a game whose own loader hooked LOAD (the ILOAD
+    // vector at $0330 points into RAM, not the KERNAL) gets its loader: it talks
+    // to the drive itself.
     const uint8_t device = sys->ram[0xBA];
+    if (core->has_1541 && core->disk && device == 8 && sys->ram[0x0331] < 0xE0) {
+        return false;
+    }
     const uint8_t sa = sys->ram[0xB9];
     const uint8_t name_len = sys->ram[0xB7];
     const uint16_t name_ptr = (uint16_t)(sys->ram[0xBB] | (sys->ram[0xBC] << 8));

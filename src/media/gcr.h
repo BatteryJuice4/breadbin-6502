@@ -56,6 +56,14 @@ bool gcr_g64_signature(const uint8_t* data, size_t size);
 // read (as the DOS would report a read error).
 bool gcr_read_sector(const core_disk_t* disk, int track, int sector, uint8_t out[256]);
 
+// Decode every sector of a track in one pass (sectors 0..max_sectors-1 into
+// out[sector * 256]); returns a bit mask of the sectors that read correctly.
+uint32_t gcr_read_track(const core_disk_t* disk, int track, uint8_t* out, int max_sectors);
+
+// The whole disk as .d64 sector data (35 tracks, or 40 if anything is recorded past
+// track 35), unreadable sectors left zero. Returns a malloc'd buffer and its size.
+uint8_t* gcr_to_d64(const core_disk_t* disk, size_t* size);
+
 // Standard 1541 layout.
 int gcr_sectors_per_track(int track);       // 21/19/18/17 by speed zone
 int gcr_speed_zone(int track);              // 3 (tracks 1-17) .. 0 (31+)

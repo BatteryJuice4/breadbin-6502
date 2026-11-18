@@ -13,7 +13,10 @@
 
     Devices: .d64, .g64 and .prg are drive 8; .t64 is the tape device 1. With the
     user's 1541 ROM the core emulates a real drive and disks go into it (use_drive:
-    the trap leaves them alone, so fastloaders and protections work); otherwise
+    the trap leaves them alone, so fastloaders and protections work; with fast_load
+    it still answers plain KERNAL LOADs instantly, from the disk as it is in the
+    drive, and the core leaves LOADs that a game's own loader hooked to the drive);
+    otherwise
     .d64/.g64/.prg are served instantly through the LOAD trap (a .g64 through the
     sectors decoded from it, so protected originals may not load that way).
     .t64 is always served by the trap. .tap images play through the emulated
@@ -68,6 +71,7 @@ typedef struct {
     gcr_image_t gcr;            // .d64/.g64: the disk surface for the 1541 (owned)
     uint8_t* g64_sectors;       // .g64: decoded sectors behind `d64` (owned)
     bool use_drive;             // disks go to the emulated 1541, not the LOAD trap
+    bool fast_load;             // ... but plain KERNAL LOADs are still answered instantly
 } media_image_t;
 
 // Takes ownership of data (malloc'd) on success and on failure.

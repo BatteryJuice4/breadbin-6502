@@ -203,6 +203,66 @@ static void test_autostart(const sysroms_t* roms) {
     core_destroy(c);
 }
 
+// Fast loading (the owner's choice): with the drive attached, plain KERNAL LOADs are
+// served instantly from the disk as it is in the drive; a LOAD that a program hooked
+// (ILOAD vector in RAM) still goes to the real drive.
+static void test_fast_load(const sysroms_t* roms) {
+    core_t* c = make_core(roms);
+    if (!c) return;
+    media_image_t m;
+    char err[128];
+    CHECK(media_open(&m, MEDIA_FMT_D64, test_disk(), D64_SIZE, err, sizeof(err)), "media_open: %s", err);
+    m.use_drive = true;
+    m.fast_load = true;
+    core_set_file_loader(c, media_serve, &m);
+    core_insert_disk(c, media_disk(&m));
+    core_reset(c);
+    autostart_t a;
+    autostart_begin(&a, c, m.fmt, NULL);
+    uint32_t frames = 0;
+    while (autostart_loading(&a) && frames < 20000) {
+        core_run_frame(c);
+        autostart_frame(&a, c);
+        frames++;
+    }
+    for (int i = 0; i < 25; i++) core_run_frame(c);
+    CHECK(core_ram_read(c, 0xC000) == 0x42 && core_ram_read(c, 0xC001) == 0x77,
+          "fast load: $C000 = $%02X, $C001 = $%02X after %u frames", core_ram_read(c, 0xC000),
+          core_ram_read(c, 0xC001), frames);
+    CHECK(core_files_loaded(c) == 2, "fast load: %u files served, expected 2", core_files_loaded(c));
+    CHECK(frames < 400, "fast load took %u frames", frames);
+    if (failures) dump_screen(c);
+    printf("test_drive: fast-load autostart finished after %u frames\n", frames);
+
+    // A file written through the real DOS is served by fast loading afterwards.
+    const int chrin = core_add_watch(c, KERNAL_CHRIN);
+    uint32_t f = 0;
+    CHECK(boot(c, chrin, &f), "fast load: no prompt");
+    type(c, "10 PRINT\"HI\"\r", &f);
+    CHECK(drive_command(c, chrin, "SAVE\"NEWFILE\",8\r", &f, NULL), "fast load: SAVE didn't finish");
+    type(c, "NEW\r", &f);
+    const uint32_t served = core_files_loaded(c);
+    type(c, "LOAD\"NEWFILE\",8\r", &f);
+    for (int i = 0; i < 50; i++) core_run_frame(c);
+    CHECK(core_files_loaded(c) == served + 1, "fast load: NEWFILE not served instantly");
+    CHECK(core_ram_read(c, 0x0803) == 10 && core_ram_read(c, 0x0805) == 0x99, "fast load: NEWFILE contents");
+
+    // A program's own loader (ILOAD at $0330 pointing into RAM) gets the real drive.
+    CHECK(boot(c, chrin, &f), "fast load: no prompt (hook)");
+    const uint8_t stub[] = { 0x4C, 0xA5, 0xF4 };    // JMP $F4A5 (the KERNAL's LOAD)
+    for (int i = 0; i < 3; i++) core_ram_write(c, (uint16_t)(0xC200 + i), stub[i]);
+    core_ram_write(c, 0xC100, 0);
+    core_ram_write(c, 0x0330, 0x00);
+    core_ram_write(c, 0x0331, 0xC2);
+    const uint32_t before = core_files_loaded(c);
+    CHECK(drive_command(c, chrin, "LOAD\"PART2\",8,1\r", &f, NULL), "hooked LOAD didn't finish in the drive");
+    CHECK(core_files_loaded(c) == before, "hooked LOAD was served by the trap");
+    CHECK(core_ram_read(c, 0xC100) == 0x77, "hooked LOAD: PART2 not loaded ($C100 = $%02X)", core_ram_read(c, 0xC100));
+    if (failures) dump_screen(c);
+    media_close(&m);
+    core_destroy(c);
+}
+
 int main(void) {
     const char* dir = getenv("BB_TEST_ROM_DIR");
     static sysroms_t user;
@@ -219,6 +279,8 @@ int main(void) {
     test_load_save(&open, "Open ROMs");
     if (user.kernal_basic_source == SYSROMS_SOURCE_USER) test_load_save(&user, "real ROMs");
     test_autostart(&open);
+    test_fast_load(&open);
+    if (user.kernal_basic_source == SYSROMS_SOURCE_USER) test_fast_load(&user);
     if (failures == 0) printf("test_drive: all passed\n");
     return failures ? 1 : 0;
 }

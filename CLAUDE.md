@@ -24,7 +24,8 @@ Repo-specific rules:
   the serial bus in the patched `c64.h`; disks reach the core as `core_disk_t` GCR tracks
   built by `src/media/gcr.c`. Only with the user's 1541 ROM (`sysroms`); `main.c`'s
   `use_drive()` decides (ROM present, pack `[load] drive`, `--no-drive`), then the trap
-  leaves disks alone (`media_image_t.use_drive`). Writes mark `core_disk_t.dirty`; the app
+  leaves disks alone (`media_image_t.use_drive`), except plain KERNAL LOADs when fast
+  loading is on (`media_image_t.fast_load`, served from the drive's current surface). Writes mark `core_disk_t.dirty`; the app
   keeps a save copy via `src/state/disksave.c` (never the user's file; not during
   replays). `tests/test_drive.c` needs `BB_TEST_ROM_DIR` with a 1541 ROM, else it's
   skipped (CI). The drive is part of determinism, save states (never its ROM) and replay

@@ -66,6 +66,8 @@ typedef struct {
     bool cart_loaded;           // any media loaded (name kept from the cartridge-only days)
     const char* media_kind;     // "Cartridge", "Disk" or "Tape"
     bool can_swap;              // disk/tape: offer "Swap disk/tape..."
+    bool drive_present;         // the 1541 is emulated: offer the fast-load option
+    bool drive_pack_forced;     // ... the game pack wants every load through the drive
     bool loading;               // disk/tape loading at warp speed (no picture yet)
     float loading_seconds;      // emulated loading time so far
     char rom_path[SETTINGS_PATH_MAX];
@@ -82,7 +84,7 @@ typedef struct {
 
     // requests from the UI, handled and cleared by the app
     bool act_resume, act_reset, act_quit, act_select_rom, act_no_cart;
-    bool act_video_changed, act_audio_changed, act_input_changed;
+    bool act_video_changed, act_audio_changed, act_input_changed, act_disk_changed;
     bool act_swap_media;        // "Swap disk/tape..." (keeps the machine running)
     bool act_load_path;         // load_path chosen in the built-in browser
     char load_path[SETTINGS_PATH_MAX];

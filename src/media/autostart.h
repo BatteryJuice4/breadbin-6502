@@ -38,6 +38,7 @@ typedef struct {
     uint32_t frames;            // since autostart_begin
     uint32_t idle;              // frames without load activity
     uint32_t last_loads;
+    uint32_t loads_before;      // files served when LOAD was typed (fast load with the drive)
     uint32_t limit;             // warp time limit in frames
     bool drive;                 // disk in the real 1541 (not the LOAD trap)
     bool motor_seen;            // .tap/1541: the motor has run

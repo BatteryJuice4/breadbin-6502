@@ -23,6 +23,7 @@ static bool mod_id_ok(const char* id) {
 
 void settings_default(settings_t* s) {
     memset(s, 0, sizeof(*s));
+    s->disk.fast_load = true;
     s->video = (video_settings_t){
         .window_scale = 3,
         .fullscreen = false,
@@ -128,6 +129,9 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
         tu_get_bool(a, "mute", &t.audio.mute, &w, "audio");
         tu_get_int(a, "latency_ms", 20, 250, &t.audio.latency_ms, &w, "audio");
     }
+
+    toml_datum_t dk = toml_get(r.toptab, "disk");
+    if (dk.type == TOML_TABLE) tu_get_bool(dk, "fast_load", &t.disk.fast_load, &w, "disk");
 
     toml_datum_t in = toml_get(r.toptab, "input");
     if (in.type == TOML_TABLE) {
@@ -238,6 +242,9 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "volume = %.2f\n", (double)s->audio.volume);
     put(&o, "mute = %s\n", s->audio.mute ? "true" : "false");
     put(&o, "latency_ms = %d\n", s->audio.latency_ms);
+    put(&o, "\n[disk]\n");
+    put(&o, "fast_load = %s   # with the 1541 drive: plain LOADs are instant, the rest uses the drive\n",
+        s->disk.fast_load ? "true" : "false");
     put(&o, "\n[input]\n");
     put(&o, "joystick_port = %d\n", s->input.joystick_port);
     for (int i = 0; i < INPUT_ACTION_COUNT; i++) {

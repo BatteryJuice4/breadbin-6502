@@ -89,6 +89,7 @@ void autostart_frame(autostart_t* a, core_t* core) {
         case AS_WAIT_PROMPT:
             if (core_watch_hits(core, a->ready_watch) > 0 && (!a->drive || a->frames >= DRIVE_READY_FRAMES)) {
                 a->state = AS_TYPE_LOAD;
+                a->loads_before = core_files_loaded(core);
             }
             break;
         case AS_TYPE_LOAD:
@@ -100,7 +101,9 @@ void autostart_frame(autostart_t* a, core_t* core) {
             }
             break;
         case AS_WAIT_DEVICE:
-            if (a->drive) {
+            if (a->drive && !a->motor_seen && core_files_loaded(core) != a->loads_before) {
+                a->state = AS_TYPE_RUN;         // fast load: the LOAD trap served it at once
+            } else if (a->drive) {
                 // The 1541 keeps spinning for a while after the load, so count the
                 // prompts from when its motor started: LOAD itself never reads input.
                 if (!a->motor_seen && core_drive_motor(core)) {
@@ -144,7 +147,7 @@ void autostart_frame(autostart_t* a, core_t* core) {
             // A trap-loaded game counts as loaded once a file was served; a tape or the real
             // drive once its motor rested.
             const bool motor = tape || a->drive;
-            over = a->idle >= (motor ? IDLE_TAPE_FRAMES : IDLE_DISK_FRAMES) && (motor ? a->motor_seen : a->last_loads > 0);
+            over = a->idle >= (motor ? IDLE_TAPE_FRAMES : IDLE_DISK_FRAMES) && (motor ? (a->motor_seen || a->last_loads > 0) : a->last_loads > 0);
         }
         if (over) a->state = AS_DONE;
     }

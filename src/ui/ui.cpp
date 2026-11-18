@@ -369,6 +369,14 @@ void tab_rom(ui_state_t* st) {
     ImGui::TextWrapped("%s", rom_status_text(st).c_str());
     ImGui::PopStyleColor();
     ImGui::Text("System ROMs: %s", st->system_roms);
+    if (st->drive_present) {
+        ImGui::BeginDisabled(st->drive_pack_forced);
+        if (ImGui::Checkbox("Fast loading", &st->settings->disk.fast_load)) st->act_disk_changed = true;
+        ImGui::EndDisabled();
+        dim_text(st->drive_pack_forced ? "This game needs every load to go through the 1541 drive."
+                 : "Plain loads skip the 1541's slow transfer; fast loaders, saving and copy protection "
+                   "still use the emulated drive. Turn off for a game that loads wrong.");
+    }
     ImGui::Spacing();
     if (ImGui::Button("Select ROM...")) st->act_select_rom = true;
     if (st->can_swap) {

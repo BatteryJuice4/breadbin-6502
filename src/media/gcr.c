@@ -336,6 +336,55 @@ static bool decode_block(const uint8_t* gcr, size_t gcr_len, uint8_t* out) {
     return true;
 }
 
+// Reads one header + data block pair after a SYNC. Returns the sector number, or -1.
+static int read_block_pair(bitreader_t* r, uint32_t limit, int track, uint8_t* out, int max_sectors) {
+    uint8_t g[HEADER_GCR], hdr[8];
+    read_bytes(r, g, sizeof(g));
+    if (!decode_block(g, sizeof(g), hdr) || hdr[0] != 0x08 || hdr[3] != track) return -1;
+    if ((hdr[1] ^ hdr[2] ^ hdr[3] ^ hdr[4] ^ hdr[5]) != 0 || hdr[2] >= max_sectors) return -1;
+    if (!find_sync(r, limit)) return -1;
+    uint8_t gd[DATA_GCR], blk[260];
+    read_bytes(r, gd, sizeof(gd));
+    if (!decode_block(gd, sizeof(gd), blk) || blk[0] != 0x07) return -1;
+    uint8_t sum = 0;
+    for (int i = 1; i <= 256; i++) sum ^= blk[i];
+    if (sum != blk[257]) return -1;
+    memcpy(out + hdr[2] * 256, blk + 1, 256);
+    return hdr[2];
+}
+
+uint32_t gcr_read_track(const core_disk_t* disk, int track, uint8_t* out, int max_sectors) {
+    if (track < 1 || track > CORE_DISK_HALFTRACKS / 2 || max_sectors > 32) return 0;
+    const int ht = (track - 1) * 2;
+    if (!disk->track[ht] || disk->size[ht] < 16) return 0;
+    bitreader_t r = { disk->track[ht], (uint32_t)disk->size[ht] * 8, 0, 0 };
+    const uint32_t limit = r.bits + r.bits / 4 + 1024;      // a little over one revolution
+    uint32_t ok = 0;
+    while (find_sync(&r, limit)) {
+        const int s = read_block_pair(&r, limit, track, out, max_sectors);
+        if (s >= 0) ok |= 1u << s;
+    }
+    return ok;
+}
+
+uint8_t* gcr_to_d64(const core_disk_t* disk, size_t* size) {
+    int tracks = 35;
+    for (int t = 36; t <= 40; t++) {
+        if (disk->track[(t - 1) * 2]) tracks = 40;
+    }
+    size_t sectors = 0;
+    for (int t = 1; t <= tracks; t++) sectors += (size_t)gcr_sectors_per_track(t);
+    uint8_t* d = calloc(sectors, 256);
+    if (!d) return NULL;
+    uint8_t* p = d;
+    for (int t = 1; t <= tracks; t++) {
+        gcr_read_track(disk, t, p, gcr_sectors_per_track(t));
+        p += (size_t)gcr_sectors_per_track(t) * 256;
+    }
+    *size = sectors * 256;
+    return d;
+}
+
 bool gcr_read_sector(const core_disk_t* disk, int track, int sector, uint8_t out[256]) {
     if (track < 1 || track > CORE_DISK_HALFTRACKS / 2) return false;
     const int ht = (track - 1) * 2;
