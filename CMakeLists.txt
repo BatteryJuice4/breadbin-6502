@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(breadbin-6502 VERSION 0.5.2 LANGUAGES C CXX)
+project(breadbin-6502 VERSION 0.6.0 LANGUAGES C CXX)
 
 if(APPLE)
     enable_language(OBJC)
