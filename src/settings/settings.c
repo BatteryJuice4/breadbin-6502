@@ -25,6 +25,7 @@ void settings_default(settings_t* s) {
     memset(s, 0, sizeof(*s));
     s->disk.fast_load = true;
     s->disk.drive_light = true;
+    s->emulation.recompiled = true;
     s->video = (video_settings_t){
         .window_scale = 3,
         .fullscreen = false,
@@ -135,6 +136,11 @@ bool settings_parse(settings_t* s, const char* text, size_t len,
     if (dk.type == TOML_TABLE) {
         tu_get_bool(dk, "fast_load", &t.disk.fast_load, &w, "disk");
         tu_get_bool(dk, "drive_light", &t.disk.drive_light, &w, "disk");
+    }
+
+    toml_datum_t em = toml_get(r.toptab, "emulation");
+    if (em.type == TOML_TABLE) {
+        tu_get_bool(em, "recompiled", &t.emulation.recompiled, &w, "emulation");
     }
 
     toml_datum_t in = toml_get(r.toptab, "input");
@@ -251,6 +257,9 @@ size_t settings_serialize(const settings_t* s, char* buf, size_t cap) {
     put(&o, "fast_load = %s   # with the 1541 drive: plain LOADs are instant, the rest uses the drive\n",
         s->disk.fast_load ? "true" : "false");
     put(&o, "drive_light = %s\n", s->disk.drive_light ? "true" : "false");
+    put(&o, "\n[emulation]\n");
+    put(&o, "recompiled = %s   # run the game's recompiled code if this build has it (same frames either way)\n",
+        s->emulation.recompiled ? "true" : "false");
     put(&o, "\n[input]\n");
     put(&o, "joystick_port = %d\n", s->input.joystick_port);
     for (int i = 0; i < INPUT_ACTION_COUNT; i++) {

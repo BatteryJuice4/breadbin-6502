@@ -48,6 +48,10 @@ typedef struct {
     bool drive_light;           // show the 1541's busy light over the picture
 } disk_settings_t;
 
+typedef struct {
+    bool recompiled;            // run the game's recompiled code where the build has it (docs/recomp.md)
+} emulation_settings_t;
+
 typedef enum {
     INPUT_UP = 0,
     INPUT_DOWN,
@@ -73,6 +77,7 @@ typedef struct {
     audio_settings_t audio;
     input_settings_t input;
     disk_settings_t disk;
+    emulation_settings_t emulation;
     int mods_enabled_count;                         // enabled mods, in load order
     char mods_enabled[SETTINGS_MAX_MODS][SETTINGS_MOD_ID_MAX];
 } settings_t;

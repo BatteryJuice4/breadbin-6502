@@ -104,7 +104,7 @@ static struct {
     const char* cli_replay;                 // --replay FILE
     bool cli_verify;                        // --verify: play the replay without a window, then exit
     const char* cli_record;                 // --record FILE: record from the start, save there on exit
-    bool cli_recomp;                        // --core recomp: run the built-in recompiled code
+    int cli_core;                           // --core: 0 = settings, 1 = recomp, 2 = interp
     const char* cli_coverage;               // --coverage DIR: code coverage maps, one per game SHA-1
     char coverage_sha1[41];                 // the game the core's coverage map belongs to
     bool cli_headless;                      // --headless: run --frames N frames without a window, then exit
@@ -679,22 +679,44 @@ static void coverage_begin(const char* sha1) {
     snprintf(app.coverage_sha1, sizeof(app.coverage_sha1), "%s", sha1);
 }
 
-// --core recomp: say whether the recompiled code runs for the game just inserted.
-static void recomp_report(void) {
+// Recompiled code (docs/recomp.md): on when the build has it, the settings (or --core)
+// want it and it matches the inserted cartridge. Frames are identical either way, so
+// it can change at any time, also during replays.
+static bool recomp_wanted(void) {
+    return app.cli_core ? app.cli_core == 1 : app.settings.emulation.recompiled;
+}
+
+static void recomp_apply(bool report) {
+    ui_state_t* u = &app.ui;
 #ifdef BB_HAS_RECOMP
-    if (!app.cli_recomp) return;
+    u->recomp_built = true;
     char why[256] = "";
-    if (core_recomp_active(app.core) || core_set_recomp(app.core, bb_rc_get_program(), why, sizeof(why))) {
-        fprintf(stderr, "breadbin-6502: recompiled code active (%s)\n", bb_rc_get_program()->generator);
+    const bool was = core_recomp_active(app.core);
+    if (!recomp_wanted()) {
+        core_set_recomp(app.core, NULL, NULL, 0);
+        snprintf(u->recomp_status, sizeof(u->recomp_status), "Off: the interpreter runs the game.");
+    } else if (core_recomp_active(app.core) || core_set_recomp(app.core, bb_rc_get_program(), why, sizeof(why))) {
+        snprintf(u->recomp_status, sizeof(u->recomp_status),
+                 "On: the game's code runs as C generated from your ROM by %s. Same frames as the interpreter.",
+                 bb_rc_get_program()->generator);
     } else {
-        fprintf(stderr, "breadbin-6502: recompiled code not used: %s; running the interpreter\n", why);
+        snprintf(u->recomp_status, sizeof(u->recomp_status), "Not used: %s. The interpreter runs the game.", why);
+    }
+    u->recomp_active = core_recomp_active(app.core);
+    if (report && (recomp_wanted() || was)) {
+        fprintf(stderr, "breadbin-6502: recompiled code: %s\n", u->recomp_status);
+    }
+#else
+    (void)u;
+    if (report && app.cli_core == 1) {
+        fprintf(stderr, "breadbin-6502: --core recomp: this build has no recompiled code; running the interpreter\n");
     }
 #endif
 }
 
 // Share of the CPU's cycles the recompiled code ran (since the last reset).
 static void recomp_stats(void) {
-    if (!app.cli_recomp || !app.core) return;
+    if (!app.core || !app.ui.recomp_built || !recomp_wanted()) return;
     const uint64_t total = core_cycle_count(app.core);
     if (total) {
         fprintf(stderr, "breadbin-6502: recompiled code ran %.1f%% of %llu cycles\n",
@@ -706,7 +728,7 @@ static void insert_cart(const cart_t* cart, const char* path, rom_status_t statu
     interrupt_replay("another game was loaded");
     eject_media();
     core_insert_cart(app.core, cart);
-    recomp_report();
+    recomp_apply(true);
     ui_state_t* u = &app.ui;
     u->cart_loaded = true;
     u->media_kind = "Cartridge";
@@ -1116,6 +1138,10 @@ static void handle_ui_actions(void) {
         else if (want != app.media.fast_load) set_message(false, "Fast loading changes when the game is loaded again.%s", "");
         app.settings_dirty = true;
     }
+    if (u->act_core_changed) {
+        recomp_apply(true);
+        app.settings_dirty = true;
+    }
     if (u->act_resume) {
         u->screen = u->menu_return;
         u->capture_action = UI_CAPTURE_NONE;
@@ -1195,7 +1221,7 @@ static void handle_ui_actions(void) {
     }
     u->act_resume = u->act_reset = u->act_quit = u->act_select_rom = u->act_no_cart = false;
     u->act_video_changed = u->act_audio_changed = u->act_input_changed = u->act_load_path = false;
-    u->act_disk_changed = false;
+    u->act_disk_changed = u->act_core_changed = false;
     u->act_confirm_play = u->act_confirm_cancel = u->act_swap_media = false;
     u->act_mods_changed = u->act_mods_rescan = u->act_mod_install = u->act_mod_install_path = false;
     u->act_mod_uninstall = u->act_mods_restart = false;
@@ -1486,9 +1512,9 @@ static void usage(void) {
         "                    exit (testing; e.g. with --record to make a regression replay)\n"
         "  --coverage DIR    trace which addresses run as code (analysis for recompiling),\n"
         "                    merged into DIR/<game sha1>.bbcov on exit; works with --replay\n"
-        "  --core recomp     run the game's recompiled code where a game repo built it in\n"
-        "                    (breadbin-recomp); --core interp (default): the interpreter only.\n"
-        "                    Frames and replays are identical either way\n");
+        "  --core recomp|interp  override the \"Recompiled code\" setting for this run (builds\n"
+        "                    with a game's recompiled code only; frames and replays are\n"
+        "                    identical either way)\n");
 }
 
 static bool parse_args(int argc, char* argv[]) {
@@ -1509,7 +1535,7 @@ static bool parse_args(int argc, char* argv[]) {
         else if (!strcmp(a, "--headless"))      { app.cli_headless = true; }
         else if (!strcmp(a, "--coverage") && v) { app.cli_coverage = v; i++; }
         else if (!strcmp(a, "--core") && v && (!strcmp(v, "recomp") || !strcmp(v, "interp"))) {
-            app.cli_recomp = !strcmp(v, "recomp");
+            app.cli_core = !strcmp(v, "recomp") ? 1 : 2;
             i++;
         }
         else if (!strcmp(a, "--no-drive"))      { app.cli_no_drive = true; }
@@ -1657,14 +1683,7 @@ sapp_desc sokol_main(int argc, char* argv[]) {
         fprintf(stderr, "breadbin-6502: failed to create emulator core\n");
         exit(1);
     }
-    if (app.cli_recomp) {
-#ifdef BB_HAS_RECOMP
-        char why[256];
-        (void)core_set_recomp(app.core, bb_rc_get_program(), why, sizeof(why));   // matched on insert
-#else
-        fprintf(stderr, "breadbin-6502: --core recomp: this build has no recompiled code; running the interpreter\n");
-#endif
-    }
+    recomp_apply(app.cli_core == 1);     // matched again whenever a cartridge goes in
     app.frame_period = 1.0 / core_frame_rate(app.core);
     app.scripts = scriptset_create();
     app.plugins = pluginset_create();

@@ -11,15 +11,23 @@ recorded with one verifies on the other.
 
 ## Building it in
 
+gorf-port's `GORF_RECOMP` option is the reference. In outline:
+
 ```cmake
 breadbin-recomp gen <rom> --hints recomp/hints.toml -o ${CMAKE_BINARY_DIR}/generated   # at build time
 set(BB_RECOMP_SOURCES <generated>/program.c;<generated>/shard_000.c;...)  # from recomp.cmake
 set(BB_RECOMP_INCLUDE <breadbin-recomp>/runtime)
+set(BB_RECOMP_DEPENDS <target that runs the generator>)   # when generated at build time
 add_subdirectory(external/breadbin-6502)
 ```
 
 `BB_RECOMP_SOURCES` adds the generated files to the executable and defines
-`BB_HAS_RECOMP`. Run with `--core recomp` (the default stays the interpreter).
+`BB_HAS_RECOMP`. Such a build has **no packaging** (no install rules, no CPack):
+it contains code derived from the user's ROM and is for that user only.
+
+The ROM tab then shows a **Recompiled code** checkbox (settings `[emulation] recompiled`,
+default on) with what it's doing, or why it isn't used. `--core recomp|interp`
+overrides it for one run. Switching takes effect at the next frame, even during a replay.
 
 ## When it runs
 

@@ -61,6 +61,7 @@ static void test_roundtrip(void) {
     a.input.pad_c64_key[GAMEPAD_X] = CORE_KEY_F1;
     a.input.pad_c64_key[GAMEPAD_BACK] = CORE_KEY_F1;     // two buttons, one key: one list
     a.input.pad_c64_key[GAMEPAD_Y] = 'Y';
+    a.emulation.recompiled = false;
 
     char text[4096];
     size_t need = settings_serialize(&a, NULL, 0);
@@ -79,6 +80,7 @@ static void test_roundtrip(void) {
     CHECK(b.mods_enabled_count == 2 && !strcmp(b.mods_enabled[0], "zeta") && !strcmp(b.mods_enabled[1], "alpha.v2"),
           "mod order round-trip");
     CHECK(!strcmp(a.rom_path, b.rom_path), "rom path '%s' vs '%s'", a.rom_path, b.rom_path);
+    CHECK(!b.emulation.recompiled, "[emulation] recompiled round-trip");
 
     // Truncated buffer: snprintf-style, NUL-terminated, same reported size
     char small[16];

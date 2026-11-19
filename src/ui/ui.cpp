@@ -379,6 +379,12 @@ void tab_rom(ui_state_t* st) {
                  : "Plain loads skip the 1541's slow transfer; fast loaders, saving and copy protection "
                    "still use the emulated drive. Turn off for a game that loads wrong.");
     }
+    if (st->recomp_built) {
+        if (ImGui::Checkbox("Recompiled code", &st->settings->emulation.recompiled)) st->act_core_changed = true;
+        ImGui::PushStyleColor(ImGuiCol_Text, st->recomp_active ? kOkColor : kDimColor);
+        ImGui::TextWrapped("%s", st->recomp_status);
+        ImGui::PopStyleColor();
+    }
     ImGui::Spacing();
     if (ImGui::Button("Select ROM...")) st->act_select_rom = true;
     if (st->can_swap) {

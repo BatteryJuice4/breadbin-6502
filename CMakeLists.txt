@@ -207,6 +207,7 @@ endforeach()
 # C is ROM-derived and never committed. --core recomp turns it on.
 set(BB_RECOMP_SOURCES "" CACHE STRING "Generated C from breadbin-recomp gen (program.c, shard_*.c)")
 set(BB_RECOMP_INCLUDE "" CACHE PATH "breadbin-recomp/runtime (headers for the generated C)")
+set(BB_RECOMP_DEPENDS "" CACHE STRING "Target that generates BB_RECOMP_SOURCES at build time (game repo)")
 if(BB_RECOMP_SOURCES)
     if(NOT EXISTS "${BB_RECOMP_INCLUDE}/bb_rc.h")
         message(FATAL_ERROR "BB_RECOMP_INCLUDE must point at breadbin-recomp/runtime")
@@ -217,10 +218,16 @@ if(BB_RECOMP_SOURCES)
         INCLUDE_DIRECTORIES "${BB_RECOMP_INCLUDE}"
         COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
     target_compile_definitions(breadbin-6502 PRIVATE BB_HAS_RECOMP=1)
+    if(BB_RECOMP_DEPENDS)
+        add_dependencies(breadbin-6502 ${BB_RECOMP_DEPENDS})
+    endif()
     # Dev tool: interpreter vs recompiled code, frame by frame (built on request).
     add_executable(recomp_lockstep EXCLUDE_FROM_ALL tools/recomp_lockstep.c ${BB_RECOMP_SOURCES})
     target_link_libraries(recomp_lockstep PRIVATE bb_core)
     target_compile_options(recomp_lockstep PRIVATE ${BB_WARNINGS})
+    if(BB_RECOMP_DEPENDS)
+        add_dependencies(recomp_lockstep ${BB_RECOMP_DEPENDS})
+    endif()
     message(STATUS "Recompiled code built in")
 endif()
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/plugins_registry.c.in ${BB_GEN_DIR}/plugins_registry.c @ONLY)
@@ -255,7 +262,13 @@ else()
 endif()
 
 # ---- install rules + release packages (zip / tar.gz, AppImage script) -------
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/packaging.cmake)
+# A build with recompiled code contains C derived from the user's ROM: it must never
+# be packaged or distributed, so it gets no install rules or CPack config at all.
+if(BB_RECOMP_SOURCES)
+    message(STATUS "Packaging disabled: this build contains code generated from your ROM (keep it to yourself)")
+else()
+    include(${CMAKE_CURRENT_LIST_DIR}/cmake/packaging.cmake)
+endif()
 
 # ---- tests -----------------------------------------------------------------
 if(BB_BUILD_TESTS)
