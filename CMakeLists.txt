@@ -201,6 +201,28 @@ foreach(_bb_src IN LISTS BB_PLUGIN_SOURCES)
     string(APPEND BB_PLUGIN_LIST "&bb_plugin_${_bb_name}, ")
     message(STATUS "Built-in plugin: ${_bb_name}")
 endforeach()
+# Recompiled code (workspace docs/RECOMP_PLAN.md R2/R4): a game repo runs breadbin-recomp
+# on the user's own ROM at build time and passes the generated C here, plus
+# breadbin-recomp/runtime for its headers. The launcher itself ships none; generated
+# C is ROM-derived and never committed. --core recomp turns it on.
+set(BB_RECOMP_SOURCES "" CACHE STRING "Generated C from breadbin-recomp gen (program.c, shard_*.c)")
+set(BB_RECOMP_INCLUDE "" CACHE PATH "breadbin-recomp/runtime (headers for the generated C)")
+if(BB_RECOMP_SOURCES)
+    if(NOT EXISTS "${BB_RECOMP_INCLUDE}/bb_rc.h")
+        message(FATAL_ERROR "BB_RECOMP_INCLUDE must point at breadbin-recomp/runtime")
+    endif()
+    target_sources(breadbin-6502 PRIVATE ${BB_RECOMP_SOURCES})
+    # Machine-written code: our warning set isn't meant for it.
+    set_source_files_properties(${BB_RECOMP_SOURCES} TARGET_DIRECTORY breadbin-6502 PROPERTIES
+        INCLUDE_DIRECTORIES "${BB_RECOMP_INCLUDE}"
+        COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+    target_compile_definitions(breadbin-6502 PRIVATE BB_HAS_RECOMP=1)
+    # Dev tool: interpreter vs recompiled code, frame by frame (built on request).
+    add_executable(recomp_lockstep EXCLUDE_FROM_ALL tools/recomp_lockstep.c ${BB_RECOMP_SOURCES})
+    target_link_libraries(recomp_lockstep PRIVATE bb_core)
+    target_compile_options(recomp_lockstep PRIVATE ${BB_WARNINGS})
+    message(STATUS "Recompiled code built in")
+endif()
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/plugins_registry.c.in ${BB_GEN_DIR}/plugins_registry.c @ONLY)
 target_sources(breadbin-6502 PRIVATE ${BB_GEN_DIR}/plugins_registry.c)
 target_compile_definitions(breadbin-6502 PRIVATE BB_VERSION="${PROJECT_VERSION}")
@@ -242,6 +264,11 @@ if(BB_BUILD_TESTS)
     target_link_libraries(test_core PRIVATE bb_core)
     target_compile_options(test_core PRIVATE ${BB_WARNINGS})
     add_test(NAME core COMMAND test_core)
+
+    add_executable(test_recomp tests/test_recomp.c)
+    target_link_libraries(test_recomp PRIVATE bb_core)
+    target_compile_options(test_recomp PRIVATE ${BB_WARNINGS})
+    add_test(NAME recomp COMMAND test_recomp)
 
     add_executable(test_cart tests/test_cart.c)
     target_link_libraries(test_cart PRIVATE bb_core)

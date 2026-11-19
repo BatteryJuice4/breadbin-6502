@@ -38,6 +38,13 @@ Repo-specific rules:
   `src/debug/coverage.c` (`.bbcov`), `--coverage DIR` in `main.c`, `tests/test_coverage.c`.
   Tracing only observes: never in states, replays or fingerprints. `generated/` is
   git-ignored (recompiled C is ROM-derived).
+- Recompiled code (`docs/recomp.md`): `core_set_recomp()` + the bridge in `core_chips.c`
+  (`bb_rc_cycle`, `rc_prologue`, `rc_run`), mirroring `m6502_tick()` piece by piece.
+  `src/core/recomp_abi.h` must stay identical to breadbin-recomp's `runtime/bb_rc_abi.h`.
+  Interpreter and generated code share `core_after_cpu()` (bus + hooks), so new per-cycle
+  hooks go there. Game repos set `BB_RECOMP_SOURCES`/`BB_RECOMP_INCLUDE`; `--core recomp`.
+  `tests/test_recomp.c` (hand-written program, PAL/NTSC, VIC stalls) must keep matching
+  the interpreter frame by frame; `recomp_lockstep` checks real games.
 - Mods live in `src/mods/` (strict zip reader, `mod.toml` parser, inline/IPS/BPS
   patches, `modset` = validation, load order, cheats, install). Format: `docs/mods.md`.
   Packages are untrusted input: keep the size caps and the data-files-only rule.

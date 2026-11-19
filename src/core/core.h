@@ -202,6 +202,18 @@ int core_memory_config(const core_t* core);
 // CPU cycles run since the last reset (or since the state loaded was reset).
 uint64_t core_cycle_count(const core_t* core);
 
+// Recompiled code (breadbin-recomp, workspace docs/RECOMP_PLAN.md R2). A game repo
+// builds the generated C into its executable (BB_RECOMP_SOURCES) and passes the
+// program here. It only runs while the inserted cartridge's data hashes to the SHA-1
+// it was generated from (so not with patch mods) and only where the cartridge is
+// mapped; everything else, interrupts and the last cycles of each frame stay with
+// the interpreter. Frames, fingerprints and replays are identical either way.
+struct bb_rc_program;
+// NULL removes it. On refusal returns false and says why in `why`.
+bool core_set_recomp(core_t* core, const struct bb_rc_program* program, char* why, size_t why_size);
+bool core_recomp_active(const core_t* core);      // set and matching the inserted cartridge
+uint64_t core_recomp_cycles(const core_t* core);  // cycles run by generated code since reset
+
 // ---- write watches (script mods) ---------------------------------------------
 // Record CPU writes to chosen addresses. Events are collected during a frame and
 // read after it (in order), so nothing runs in the middle of emulation. A frame

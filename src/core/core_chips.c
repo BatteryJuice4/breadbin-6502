@@ -21,8 +21,12 @@
 #include "core/patched/c64.h"   // chips c64.h + expansion port (see header)
 
 #include "core/core.h"
+#include "core/cart.h"
+#include "core/recomp_abi.h"
+#include "rom/sha1.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -79,6 +83,16 @@ struct core {
     core_disk_t* disk;          // caller's disk (must stay valid while inserted)
     const uint8_t* tape;        // caller's image (must stay valid while inserted)
     size_t tape_size;
+    // cycle position inside the current frame (shared by interpreter and generated code)
+    uint32_t frame_cycle;
+    bool watch_writes;
+    // recompiled code (core_set_recomp)
+    const bb_rc_program* rc_prog;
+    bb_rc_fn* rc_fn;            // 64K entries while a program is set
+    uint8_t* rc_op;
+    char cart_sha1[41];         // SHA-1 of the inserted cartridge data (after patches)
+    bool rc_match;              // rc_prog->sha1 == cart_sha1
+    uint64_t rc_cycles;
 };
 
 #define CORE_KERNAL_LOAD 0xFFD5
@@ -139,6 +153,7 @@ static void core_power_on(core_t* core) {
     core->frame_count = 0;
     core->load_rts = false;
     core->prev_sync = -1;
+    core->rc_cycles = 0;
     memset(core->watch_hits, 0, sizeof(core->watch_hits));
     core->wevent_count = 0;
     core->wevent_overflow = false;
@@ -200,6 +215,8 @@ void core_destroy(core_t* core) {
     if (core) {
         c64_discard(&core->sys);
         free(core->coverage);
+        free(core->rc_fn);
+        free(core->rc_op);
         core_free(core);
     }
 }
@@ -284,6 +301,110 @@ static uint64_t core_on_fetch(core_t* core, uint64_t pins) {
     return pins;
 }
 
+// Everything in a machine cycle after the CPU step: bus (VIC, SID, CIAs, memory),
+// then the core's hooks (traps, watches, coverage, write events). The interpreter
+// and generated code both go through it, so they can't diverge here.
+static inline uint64_t core_after_cpu(core_t* core, uint64_t pins) {
+    pins = _c64_tick_bus(&core->sys, pins);
+    if (pins & M6502_SYNC) {
+        pins = core_on_fetch(core, pins);
+    } else {
+        core->prev_sync = -1;
+    }
+    // CPU write cycles are never stretched by RDY, so each write shows up once.
+    if (core->watch_writes && !(pins & M6502_RW)) {
+        const uint16_t addr = M6502_GET_ADDR(pins);
+        if (core->wwatch[addr >> 3] & (1u << (addr & 7))) {
+            if (core->wevent_count < CORE_MAX_WRITE_EVENTS) {
+                core->wevents[core->wevent_count].addr = addr;
+                core->wevents[core->wevent_count].value = M6502_GET_DATA(pins);
+                core->wevent_count++;
+            } else {
+                core->wevent_overflow = true;
+            }
+        }
+    }
+    core->frame_cycle++;
+    return pins;
+}
+
+// ---- recompiled code bridge (recomp_abi.h; reference: breadbin-recomp's
+// tests/test_lockstep.c). Each function mirrors a piece of m6502_tick() exactly.
+
+// Generated code stops this many cycles before a frame ends: a frame ends at an exact
+// cycle, usually mid-instruction, which only the interpreter can do. Covers the
+// longest instruction plus the longest RDY stall (bad line + sprite DMA).
+#define CORE_RC_MARGIN 200u
+
+// The prologue of the interpreter's next tick: interrupt sampling, then RDY stalls
+// (each a full machine cycle). Repeating it is harmless: sampling is idempotent.
+static uint64_t rc_prologue(core_t* core, uint8_t p, uint64_t pins) {
+    m6502_t* c = &core->sys.cpu;
+    for (;;) {
+        if (!(pins & (M6502_SYNC | M6502_IRQ | M6502_NMI | M6502_RDY | M6502_RES))) return pins;
+        if ((pins & (pins ^ c->PINS)) & M6502_NMI) c->nmi_pip |= 0x100;
+        if ((pins & M6502_IRQ) && !(p & M6502_IF)) c->irq_pip |= 0x100;
+        if ((pins & (M6502_RW | M6502_RDY)) != (M6502_RW | M6502_RDY)) return pins;
+        M6510_SET_PORT(pins, c->io_pins);
+        c->PINS = pins;
+        c->irq_pip <<= 1;
+        _c64_tick_devices(&core->sys);
+        pins = core_after_cpu(core, pins);
+    }
+}
+
+uint64_t bb_rc_cycle(bb_rc* r, uint64_t pins) {
+    core_t* core = r->machine;
+    m6502_t* c = &core->sys.cpu;
+    M6510_SET_PORT(pins, c->io_pins);
+    c->PINS = pins;
+    c->irq_pip <<= 1;
+    c->nmi_pip <<= 1;
+    _c64_tick_devices(&core->sys);
+    pins = core_after_cpu(core, pins);
+    return rc_prologue(core, r->cpu.P, pins);
+}
+
+void bb_rc_branch_delay(bb_rc* r) {
+    core_t* core = r->machine;
+    core->sys.cpu.irq_pip >>= 1;
+    core->sys.cpu.nmi_pip >>= 1;
+}
+
+// Is the cartridge ROM what the CPU reads at addr right now?
+static bool rc_cart_visible(core_t* core, uint16_t addr) {
+    c64_t* sys = &core->sys;
+    const uint8_t* p = mem_readptr(&sys->mem_cpu, addr);
+    return (p >= sys->exp_roml && p < sys->exp_roml + sizeof(sys->exp_roml)) ||
+           (p >= sys->exp_romh && p < sys->exp_romh + sizeof(sys->exp_romh));
+}
+
+// At an opcode fetch: run generated instructions while allowed. False if none ran.
+static bool rc_run(core_t* core, uint64_t* io_pins) {
+    m6502_t* c = &core->sys.cpu;
+    bb_rc r = { .machine = core, .pins = *io_pins };
+    r.cpu = (bb_rc_cpu){ c->A, c->X, c->Y, c->S, c->P, c->bcd_enabled };
+    const uint32_t start = core->frame_cycle;
+    bool ran = false;
+    while (r.pins & M6502_SYNC) {
+        const uint16_t a = M6502_GET_ADDR(r.pins);
+        const bb_rc_fn fn = core->rc_fn[a];
+        if (!fn || core->rc_op[a] != M6502_GET_DATA(r.pins) || !rc_cart_visible(core, a)) break;
+        if (core->cycles_per_frame - core->frame_cycle <= CORE_RC_MARGIN) break;
+        r.pins = rc_prologue(core, r.cpu.P, r.pins);
+        if ((c->irq_pip & 0x400) || (c->nmi_pip & 0xFC00) || (r.pins & M6502_RES)) break;
+        c->irq_pip &= 0x3FF;    // what the interpreter's SYNC step does
+        c->nmi_pip &= 0x3FF;
+        fn(&r);
+        ran = true;
+    }
+    c->A = r.cpu.A; c->X = r.cpu.X; c->Y = r.cpu.Y; c->S = r.cpu.S; c->P = r.cpu.P;
+    c->PC = M6502_GET_ADDR(r.pins);
+    *io_pins = r.pins;
+    core->rc_cycles += core->frame_cycle - start;
+    return ran;
+}
+
 void core_run_frame(core_t* core) {
     c64_t* sys = &core->sys;
     // Joystick state is latched once per frame for determinism.
@@ -292,31 +413,67 @@ void core_run_frame(core_t* core) {
     uint64_t pins = sys->pins;
     core->wevent_count = 0;
     core->wevent_overflow = false;
-    const bool watch_writes = core->wwatch_count > 0;
-    for (uint32_t i = 0; i < core->cycles_per_frame; i++) {
-        pins = _c64_tick(sys, pins);
-        if (pins & M6502_SYNC) {
-            pins = core_on_fetch(core, pins);
-        } else {
-            core->prev_sync = -1;
-        }
-        // CPU write cycles are never stretched by RDY, so each write shows up once.
-        if (watch_writes && !(pins & M6502_RW)) {
-            const uint16_t addr = M6502_GET_ADDR(pins);
-            if (core->wwatch[addr >> 3] & (1u << (addr & 7))) {
-                if (core->wevent_count < CORE_MAX_WRITE_EVENTS) {
-                    core->wevents[core->wevent_count].addr = addr;
-                    core->wevents[core->wevent_count].value = M6502_GET_DATA(pins);
-                    core->wevent_count++;
-                } else {
-                    core->wevent_overflow = true;
-                }
-            }
-        }
+    core->watch_writes = core->wwatch_count > 0;
+    core->frame_cycle = 0;
+    const bool rc = core->rc_prog && core->rc_match;
+    while (core->frame_cycle < core->cycles_per_frame) {
+        if (rc && (pins & M6502_SYNC) && rc_run(core, &pins)) continue;
+        _c64_tick_devices(sys);
+        pins = m6502_tick(&sys->cpu, pins);
+        pins = core_after_cpu(core, pins);
     }
     sys->pins = pins;
     kbd_update(&sys->kbd, core->frame_us);
     core->frame_count++;
+}
+
+static void rc_update_match(core_t* core) {
+    core->rc_match = core->rc_prog && core->has_cart && !strcmp(core->rc_prog->sha1, core->cart_sha1);
+}
+
+bool core_set_recomp(core_t* core, const bb_rc_program* prog, char* why, size_t n) {
+    if (!prog) {
+        free(core->rc_fn); free(core->rc_op);
+        core->rc_fn = NULL; core->rc_op = NULL;
+        core->rc_prog = NULL;
+        core->rc_match = false;
+        return true;
+    }
+    if (prog->abi != BB_RC_ABI_VERSION) {
+        snprintf(why, n, "recompiled code uses ABI %u, this launcher %u", (unsigned)prog->abi, BB_RC_ABI_VERSION);
+        return false;
+    }
+    bb_rc_fn* fn = calloc(0x10000, sizeof(bb_rc_fn));
+    uint8_t* op = calloc(0x10000, 1);
+    if (!fn || !op) {
+        free(fn); free(op);
+        snprintf(why, n, "out of memory");
+        return false;
+    }
+    for (uint32_t i = 0; i < prog->count; i++) {
+        fn[prog->addr[i]] = prog->fn[i];
+        op[prog->addr[i]] = prog->opcode[i];
+    }
+    core_set_recomp(core, NULL, NULL, 0);
+    core->rc_prog = prog;
+    core->rc_fn = fn;
+    core->rc_op = op;
+    rc_update_match(core);
+    if (!core->rc_match) {
+        snprintf(why, n, core->has_cart ? "the cartridge data (%s) isn't the ROM the code was generated from (%s)"
+                                        : "no cartridge inserted (code is for %s%s)",
+                 core->has_cart ? core->cart_sha1 : "", prog->sha1);
+        return false;
+    }
+    return true;
+}
+
+bool core_recomp_active(const core_t* core) {
+    return core->rc_prog && core->rc_match;
+}
+
+uint64_t core_recomp_cycles(const core_t* core) {
+    return core->rc_cycles;
 }
 
 int core_memory_config(const core_t* core) {
@@ -403,6 +560,17 @@ bool core_insert_cart(core_t* core, const cart_t* cart) {
     }
     c64_set_expansion(&core->sys, exrom, game, cart->roml, cart->romh);
     core->has_cart = true;
+    // Recompiled code is only valid for the exact bytes it was generated from.
+    const size_t size = cart_data_size(cart);
+    uint8_t* data = malloc(size ? size : 1);
+    if (data) {
+        cart_data_get(cart, data);
+        sha1_hex(data, size, core->cart_sha1);
+        free(data);
+    } else {
+        core->cart_sha1[0] = 0;
+    }
+    rc_update_match(core);
     core_reset(core);
     return true;
 }
@@ -410,6 +578,8 @@ bool core_insert_cart(core_t* core, const cart_t* cart) {
 void core_remove_cart(core_t* core) {
     c64_set_expansion(&core->sys, false, false, NULL, NULL);
     core->has_cart = false;
+    core->cart_sha1[0] = 0;
+    rc_update_match(core);
     core_reset(core);
 }
 
